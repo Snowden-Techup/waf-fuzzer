@@ -66,26 +66,28 @@ def select_modules(args) -> list:
     return selected
 
 
+def _module_runtime_payload_count(module) -> int:
+    """실제 실행 목록 기준(변형·필터 포함). get_payload_count()와 다를 수 있음."""
+    if hasattr(module, "get_payloads"):
+        payloads = module.get_payloads()
+        try:
+            return len(payloads)
+        except TypeError:
+            # SQLi 등 Iterator 반환 모듈은 len() 불가 → get_payload_count() 사용
+            pass
+    if hasattr(module, "get_payload_count"):
+        return module.get_payload_count()
+    return 0
+
+
 def count_module_payloads(modules: list) -> int:
-    total = 0
-    for module in modules:
-        # get_payload_count 메서드가 있으면 사용, 없으면 len() 시도
-        if hasattr(module, "get_payload_count"):
-            total += module.get_payload_count()
-        else:
-            total += len(module.get_payloads())
-    return total
+    return sum(_module_runtime_payload_count(m) for m in modules)
 
 
 def estimate_total_requests(surfaces: list[AttackSurface], modules: list) -> int:
 
-    #각 모듈의 페이로드 개수를 미리 계산하여 반복적인 I/O 및 연산을 방지
-    module_payload_counts = {}
-    for m in modules:
-        if hasattr(m, "get_payload_count"):
-            module_payload_counts[id(m)] = m.get_payload_count()
-        else:
-            module_payload_counts[id(m)] = len(m.get_payloads())
+    # 각 모듈의 실제 페이로드 개수(변형 포함)를 미리 계산
+    module_payload_counts = {id(m): _module_runtime_payload_count(m) for m in modules}
     
     total = 0
     for surface in surfaces:
