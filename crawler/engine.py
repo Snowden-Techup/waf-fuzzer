@@ -151,29 +151,32 @@ class CrawlerEngine:
             self._stats.failed_requests += 1
             self._stats.record_error(type(e).__name__)
 
-    #  DB+OS 정보 추출 (헤더 + 쿠키 + URL 기반 교차 검증)
     def _fingerprint_server(self, headers: dict, cookies: dict, url: str) -> dict:
-        info = {"os": "Unknown", "web_server": "Unknown", "language": "Unknown", "db": "Unknown"}
+        info = {"web_server": "Unknown", "language": "Unknown"}
 
         headers_lower = {k.lower(): v for k, v in headers.items()}
         server_header = headers_lower.get("server", "").lower()
         powered_by = headers_lower.get("x-powered-by", "").lower()
 
-        # 1. OS 추론 (헤더 기반)
-        if any(os in server_header for os in ["ubuntu", "debian", "centos", "redhat", "linux"]):
-            info["os"] = "Linux"
-        elif "win32" in server_header or "iis" in server_header:
-            info["os"] = "Windows"
-
-        # 2. 웹 서버 추론 (헤더 기반)
+        # 1. 웹 서버 추론 (헤더 기반)
         if "apache" in server_header:
             info["web_server"] = "Apache"
         elif "nginx" in server_header:
             info["web_server"] = "Nginx"
         elif "iis" in server_header:
             info["web_server"] = "IIS"
+        elif "express" in powered_by or "express" in server_header:
+            info["web_server"] = "Express"
+        elif "cloudflare" in server_header:
+            info["web_server"] = "Cloudflare"
+        elif "litespeed" in server_header:
+            info["web_server"] = "LiteSpeed"
+        elif "caddy" in server_header:
+            info["web_server"] = "Caddy"
+        elif "werkzeug" in server_header or "gunicorn" in server_header:
+            info["web_server"] = "Gunicorn/Werkzeug"
 
-        # 3. 개발 언어 추론 (교차 검증: A. 헤더 -> B. 쿠키 -> C. URL)
+        # 2. 개발 언어 추론 (교차 검증: A. 헤더 -> B. 쿠키 -> C. URL)
         # A. 헤더 확인
         if "php" in powered_by or "php" in server_header:
             info["language"] = "PHP"
@@ -181,6 +184,12 @@ class CrawlerEngine:
             info["language"] = "ASP.NET"
         elif "jsp" in powered_by or "tomcat" in server_header or "java" in powered_by:
             info["language"] = "Java"
+        elif "node" in powered_by or "express" in powered_by or "express" in server_header:
+            info["language"] = "Node.js"
+        elif "python" in powered_by or "werkzeug" in server_header or "gunicorn" in server_header:
+            info["language"] = "Python"
+        elif "ruby" in powered_by or "passenger" in server_header:
+            info["language"] = "Ruby"
 
         # B. 쿠키 확인 (헤더에서 못 찾았을 경우)
         if info["language"] == "Unknown":
@@ -190,6 +199,12 @@ class CrawlerEngine:
                 info["language"] = "ASP.NET"
             elif "JSESSIONID" in cookies:
                 info["language"] = "Java"
+            elif "connect.sid" in cookies:  # Express.js 기본 세션
+                info["language"] = "Node.js"
+            elif "_session_id" in cookies:  # Ruby on Rails 기본 세션
+                info["language"] = "Ruby"
+            elif "CFID" in cookies or "CFTOKEN" in cookies:  # Adobe ColdFusion
+                info["language"] = "ColdFusion"
 
         # C. URL 확장자 확인 (쿠키로도 못 찾았을 경우)
         url_lower = url.lower()
@@ -198,16 +213,14 @@ class CrawlerEngine:
                 info["language"] = "PHP"
             elif ".asp" in url_lower or ".aspx" in url_lower:
                 info["language"] = "ASP.NET"
-            elif ".jsp" in url_lower or ".do" in url_lower:
+            elif ".jsp" in url_lower or ".do" in url_lower or ".action" in url_lower:
                 info["language"] = "Java"
-
-        # 4. 언어 기반 DB 유추 세팅
-        if info["language"] == "PHP":
-            info["db"] = "MySQL/MariaDB"
-        elif info["language"] == "ASP.NET":
-            info["db"] = "MSSQL"
-        elif info["language"] == "Java":
-            info["db"] = "Oracle/MySQL"
+            elif ".rb" in url_lower:
+                info["language"] = "Ruby"
+            elif ".py" in url_lower:
+                info["language"] = "Python"
+            elif ".cfm" in url_lower:
+                info["language"] = "ColdFusion"
 
         return info
 

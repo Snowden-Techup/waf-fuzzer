@@ -570,13 +570,14 @@
                 <option value="lfi">lfi</option>
                 <option value="file_upload">file_upload</option>
                 <option value="ssrf">ssrf</option>
+                <option value="stored_xss">stored_xss</option>
               </select>
             </div>
             <div class="mt-3">
               <label class="form-label" for="level">우회 단계</label>
               <input id="level" type="number" class="form-control" min="0" max="3" value="1">
               <div class="field-help">
-                전체 모듈에 공통 적용되며, bruteforce에는 적용되지 않습니다.
+                SQLi·LFI·SSRF·Stored XSS 우회 단계. bruteforce에는 적용되지 않습니다.
               </div>
             </div>
           </div>
@@ -788,6 +789,39 @@
               </div>
             </div>
             </div>
+
+            <div id="detailPanelSxss" class="module-detail-panel">
+            <div class="row g-2">
+              <div class="col-12 hint">Stored XSS</div>
+              <div class="col-md-4">
+                <label class="form-label" for="sxss_scan_mode">스캔 모드</label>
+                <select id="sxss_scan_mode" class="form-select">
+                  <option value="quick">quick (basic + event_handler)</option>
+                  <option value="full" selected>full (전체 카테고리)</option>
+                  <option value="stealth">stealth</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label" for="sxss_max_risk_level">최대 위험도</label>
+                <select id="sxss_max_risk_level" class="form-select">
+                  <option value="Low">Low</option>
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                  <option value="Critical" selected>Critical</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label" for="sxss_categories">카테고리 (선택)</label>
+                <input id="sxss_categories" class="form-control" placeholder="basic,event_handler">
+                <div class="field-help">쉼표 구분. 비우면 full 모드에서 전체 사용.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="sxss_target_params">대상 파라미터 (선택)</label>
+                <input id="sxss_target_params" class="form-control" placeholder="title,content">
+                <div class="field-help">비우면 모듈 휴리스틱으로 자동 선택합니다.</div>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
         </div>
@@ -887,6 +921,7 @@
     const detailPanelSqli = document.getElementById("detailPanelSqli");
     const detailPanelBf = document.getElementById("detailPanelBf");
     const detailPanelSsrf = document.getElementById("detailPanelSsrf");
+    const detailPanelSxss = document.getElementById("detailPanelSxss");
     const moduleDetailHint = document.getElementById("moduleDetailHint");
     let lastScanId = "";
     let pollTimer = null;
@@ -909,29 +944,39 @@
       return "0.0%";
     }
 
-    function updateScanProgressUI(scan) {
+    function resolveProgressTotals(scan) {
       const sum = scan.summary || {};
-      const totalRaw = scan.total_requests != null ? scan.total_requests : sum.total_requests;
-      const totalNum = totalRaw != null && totalRaw !== "" ? Number(totalRaw) : NaN;
+      const planned = Number(
+        sum.planned_requests ?? scan.planned_requests ?? sum.total_requests ?? scan.total_requests ?? 0
+      );
+      const queued = Number(sum.queued ?? 0);
       const completed = Number(sum.completed ?? 0);
       const failures = Number(sum.failures ?? 0);
-      const ok = Math.max(0, completed - failures);
+      const effectiveTotal = Math.max(
+        Number.isNaN(planned) ? 0 : planned,
+        Number.isNaN(queued) ? 0 : queued,
+        completed,
+        1
+      );
+      const success = Math.min(
+        Math.max(0, completed - failures),
+        effectiveTotal
+      );
+      return { effectiveTotal, completed, failures, success };
+    }
 
-      if (!Number.isNaN(totalNum) && totalNum > 0) {
-        statTotal.textContent = String(totalNum);
-        statSuccess.textContent = String(ok);
-        statFail.textContent = String(failures);
-      } else {
-        statTotal.textContent = "—";
-        statSuccess.textContent = "—";
-        statFail.textContent = "—";
-      }
+    function updateScanProgressUI(scan) {
+      const { effectiveTotal, completed, failures, success } = resolveProgressTotals(scan);
+
+      statTotal.textContent = String(effectiveTotal);
+      statSuccess.textContent = String(success);
+      statFail.textContent = String(failures);
 
       let pct = 0;
       if (typeof scan.progress_percent === "number" && !Number.isNaN(scan.progress_percent)) {
         pct = scan.progress_percent;
-      } else if (!Number.isNaN(totalNum) && totalNum > 0) {
-        pct = Math.min(100, Math.round((completed / totalNum) * 1000) / 10);
+      } else if (effectiveTotal > 0) {
+        pct = Math.min(100, Math.round((completed / effectiveTotal) * 1000) / 10);
       } else {
         pct = Number(scan.progress ?? 0);
       }
@@ -972,17 +1017,20 @@
       const showSqli = t === "all" || t === "sqli";
       const showBf = t === "bruteforce";
       const showSsrf = t === "all" || t === "ssrf";
-      const any = showSqli || showBf || showSsrf;
+      const showSxss = t === "all" || t === "stored_xss";
+      const any = showSqli || showBf || showSsrf || showSxss;
 
       detailPanelSqli.hidden = !showSqli;
       detailPanelBf.hidden = !showBf;
       detailPanelSsrf.hidden = !showSsrf;
+      detailPanelSxss.hidden = !showSxss;
       moduleDetailSection.hidden = !any;
 
       const labels = [];
       if (showSqli) labels.push("SQLi");
       if (showBf) labels.push("Bruteforce");
       if (showSsrf) labels.push("SSRF");
+      if (showSxss) labels.push("Stored XSS");
       moduleDetailHint.textContent = labels.length ? labels.join(" · ") : "";
     }
 
@@ -992,6 +1040,11 @@
     function toInt(id, fallback = 0) {
       const n = parseInt(document.getElementById(id).value, 10);
       return Number.isNaN(n) ? fallback : n;
+    }
+
+    function parseCommaList(value) {
+      if (!value.trim()) return [];
+      return value.split(",").map((item) => item.trim()).filter(Boolean);
     }
 
     function parseExtraParams(value) {
@@ -1140,6 +1193,12 @@
         },
         ssrf: {
           ssrf_include_oob: document.getElementById("ssrf_include_oob").checked
+        },
+        stored_xss: {
+          scan_mode: document.getElementById("sxss_scan_mode").value,
+          max_risk_level: document.getElementById("sxss_max_risk_level").value,
+          categories: parseCommaList(document.getElementById("sxss_categories").value),
+          target_params: parseCommaList(document.getElementById("sxss_target_params").value)
         }
       };
     }

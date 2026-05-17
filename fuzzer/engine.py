@@ -484,112 +484,116 @@ class FuzzerEngine:
         on_finding: ResultCallback | None,
     ) -> None:
         stop_event = self._module_stop_events.get(module.name)
-        if stop_event is not None and stop_event.is_set():
-            return
-
-        response: Any
         try:
-            async with self._semaphore:
-                response = await request_sender(
-                    session=session,
-                    surface=surface,
-                    parameter=parameter,
-                    payload=payload,
-                )
-        except Exception as exc:
-            async with self._stats_lock:
-                self._stats.failures += 1
-                self._stats.completed += 1
-            print(f"[worker:{worker_id}][{module.name}] request failed: {exc}")
-            return
+            if stop_event is not None and stop_event.is_set():
+                return
 
-        if self.delay > 0:
-            # Sleep outside semaphore so slots are not blocked by throttle waits.
-            await asyncio.sleep(self.delay)
+            response: Any
+            try:
+                async with self._semaphore:
+                    response = await request_sender(
+                        session=session,
+                        surface=surface,
+                        parameter=parameter,
+                        payload=payload,
+                    )
+            except Exception as exc:
+                async with self._stats_lock:
+                    self._stats.failures += 1
+                print(f"[worker:{worker_id}][{module.name}] request failed: {exc}")
+                return
 
-        elapsed_time = float(
-            getattr(response, "elapsed_time", getattr(response, "elapsed", 0.0))
-        )
+            if self.delay > 0:
+                # Sleep outside semaphore so slots are not blocked by throttle waits.
+                await asyncio.sleep(self.delay)
 
-        async def module_requester(new_payload_value: str):
-            mutated_payload = dataclasses.replace(payload, value=new_payload_value)
-            async with self._semaphore:
-                return await request_sender(
-                    session=session,
-                    surface=surface,
-                    parameter=parameter,
-                    payload=mutated_payload,
-                )
+            elapsed_time = float(
+                getattr(response, "elapsed_time", getattr(response, "elapsed", 0.0))
+            )
 
-        verdict = module.analyze(
-            response=response,
-            payload=payload,
-            elapsed_time=elapsed_time,
-            original_res=baseline_response,
-            requester=module_requester
-        )
+            async def module_requester(new_payload_value: str):
+                mutated_payload = dataclasses.replace(payload, value=new_payload_value)
+                async with self._semaphore:
+                    return await request_sender(
+                        session=session,
+                        surface=surface,
+                        parameter=parameter,
+                        payload=mutated_payload,
+                    )
 
-        if isawaitable(verdict):
-            verdict = await verdict
+            verdict = module.analyze(
+                response=response,
+                payload=payload,
+                elapsed_time=elapsed_time,
+                original_res=baseline_response,
+                requester=module_requester
+            )
 
-        if isinstance(verdict, tuple):
-            if len(verdict) == 3:
-                is_hit, evidences, actual_payload = verdict
-            elif len(verdict) == 2:
-                is_hit, evidences = verdict
-                actual_payload = payload
+            if isawaitable(verdict):
+                verdict = await verdict
+
+            if isinstance(verdict, tuple):
+                if len(verdict) == 3:
+                    is_hit, evidences, actual_payload = verdict
+                elif len(verdict) == 2:
+                    is_hit, evidences = verdict
+                    actual_payload = payload
+                else:
+                    is_hit = verdict[0]
+                    evidences = []
+                    actual_payload = payload
             else:
-                is_hit = verdict[0]
+                is_hit = bool(verdict)
                 evidences = []
                 actual_payload = payload
-        else:
-            is_hit = bool(verdict)
-            evidences = []
-            actual_payload = payload
 
-        async with self._stats_lock:
-            self._stats.completed += 1
+            if not is_hit:
+                return
 
-        if not is_hit:
-            return
+            verify_hook = getattr(module, "verify", None)
+            if callable(verify_hook):
+                verify_result = verify_hook(
+                    session=session,
+                    surface=surface,
+                    parameter=parameter,
+                    payload=actual_payload,
+                    response=response,
+                    baseline_response=baseline_response,
+                )
+                is_verified = (
+                    await verify_result if isawaitable(verify_result) else bool(verify_result)
+                )
+                if not is_verified:
+                    return
 
-        verify_hook = getattr(module, "verify", None)
-        if callable(verify_hook):
-            verify_result = verify_hook(
-                session=session,
+            finding = Finding(
                 surface=surface,
                 parameter=parameter,
                 payload=actual_payload,
                 response=response,
-                baseline_response=baseline_response,
+                module_name=module.name,
+                evidences=evidences
             )
-            is_verified = (
-                await verify_result if isawaitable(verify_result) else bool(verify_result)
-            )
-            if not is_verified:
-                return
+            self._findings.append(finding)
+            async with self._stats_lock:
+                self._stats.findings += 1
 
-        finding = Finding(
-            surface=surface,
-            parameter=parameter,
-            payload=actual_payload,
-            response=response,
-            module_name=module.name,
-            evidences=evidences
-        )
-        self._findings.append(finding)
-        async with self._stats_lock:
-            self._stats.findings += 1
+            if on_finding is not None:
+                callback_result = on_finding(finding)
+                if isawaitable(callback_result):
+                    await callback_result
 
-        if on_finding is not None:
-            callback_result = on_finding(finding)
-            if isawaitable(callback_result):
-                await callback_result
-
-        stop_on_first_hit = bool(getattr(module, "stop_on_first_hit", False))
-        if stop_on_first_hit and stop_event is not None and not stop_event.is_set():
-            stop_event.set()
-            print(f"[*] [{module.name}] stop-on-first-hit triggered; skipping remaining payloads.")
+            stop_on_first_hit = bool(getattr(module, "stop_on_first_hit", False))
+            if stop_on_first_hit and stop_event is not None and not stop_event.is_set():
+                stop_event.set()
+                print(f"[*] [{module.name}] stop-on-first-hit triggered; skipping remaining payloads.")
+        except Exception as exc:
+            async with self._stats_lock:
+                self._stats.failures += 1
+            print(f"[worker:{worker_id}][{module.name}] attack task failed: {exc}")
+        finally:
+            async with self._stats_lock:
+                self._stats.completed += 1
 
     @staticmethod
     def _dynamic_token_names(surface: AttackSurface) -> set[str]:
