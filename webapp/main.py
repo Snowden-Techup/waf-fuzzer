@@ -336,17 +336,26 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
         )
 
         while not scan_task.done():
-            completed = min(engine.stats.completed, total_requests)
-            progress_pct = min(99.9, round(completed / total_requests * 100, 1))
+            planned_total = total_requests
+            queued_total = engine.stats.queued
+            effective_total = max(planned_total, queued_total, 1)
+            completed = engine.stats.completed
+            progress_pct = min(
+                100.0,
+                round(completed / effective_total * 100, 1),
+            )
+            if not scan_task.done() and progress_pct >= 99.9:
+                progress_pct = 99.9
             scan["progress_percent"] = progress_pct
             scan["progress"] = int(progress_pct)
             scan["summary"] = {
-                "queued": engine.stats.queued,
-                "completed": engine.stats.completed,
+                "queued": queued_total,
+                "completed": completed,
                 "failures": engine.stats.failures,
                 "findings": engine.stats.findings,
                 "elapsed_time": round(time.monotonic() - started_at, 2),
-                "total_requests": total_requests,
+                "total_requests": effective_total,
+                "planned_requests": planned_total,
             }
             scan["updated_at"] = time.time()
             if progress_pct != last_logged_progress:
@@ -380,6 +389,7 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
             _scan_log(scan, f"리포트 JSON 로드 실패: {exc}")
 
         findings = _serialize_findings(engine.findings)
+        final_total = max(total_requests, stats.queued, stats.completed, 1)
         scan["status"] = "completed"
         scan["progress"] = 100
         scan["progress_percent"] = 100.0
@@ -390,7 +400,8 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
             "failures": stats.failures,
             "findings": stats.findings,
             "elapsed_time": round(time.monotonic() - started_at, 2),
-            "total_requests": total_requests,
+            "total_requests": final_total,
+            "planned_requests": total_requests,
         }
         scan["result"] = {
             "summary": {

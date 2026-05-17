@@ -944,29 +944,39 @@
       return "0.0%";
     }
 
-    function updateScanProgressUI(scan) {
+    function resolveProgressTotals(scan) {
       const sum = scan.summary || {};
-      const totalRaw = scan.total_requests != null ? scan.total_requests : sum.total_requests;
-      const totalNum = totalRaw != null && totalRaw !== "" ? Number(totalRaw) : NaN;
+      const planned = Number(
+        sum.planned_requests ?? scan.planned_requests ?? sum.total_requests ?? scan.total_requests ?? 0
+      );
+      const queued = Number(sum.queued ?? 0);
       const completed = Number(sum.completed ?? 0);
       const failures = Number(sum.failures ?? 0);
-      const ok = Math.max(0, completed - failures);
+      const effectiveTotal = Math.max(
+        Number.isNaN(planned) ? 0 : planned,
+        Number.isNaN(queued) ? 0 : queued,
+        completed,
+        1
+      );
+      const success = Math.min(
+        Math.max(0, completed - failures),
+        effectiveTotal
+      );
+      return { effectiveTotal, completed, failures, success };
+    }
 
-      if (!Number.isNaN(totalNum) && totalNum > 0) {
-        statTotal.textContent = String(totalNum);
-        statSuccess.textContent = String(ok);
-        statFail.textContent = String(failures);
-      } else {
-        statTotal.textContent = "—";
-        statSuccess.textContent = "—";
-        statFail.textContent = "—";
-      }
+    function updateScanProgressUI(scan) {
+      const { effectiveTotal, completed, failures, success } = resolveProgressTotals(scan);
+
+      statTotal.textContent = String(effectiveTotal);
+      statSuccess.textContent = String(success);
+      statFail.textContent = String(failures);
 
       let pct = 0;
       if (typeof scan.progress_percent === "number" && !Number.isNaN(scan.progress_percent)) {
         pct = scan.progress_percent;
-      } else if (!Number.isNaN(totalNum) && totalNum > 0) {
-        pct = Math.min(100, Math.round((completed / totalNum) * 1000) / 10);
+      } else if (effectiveTotal > 0) {
+        pct = Math.min(100, Math.round((completed / effectiveTotal) * 1000) / 10);
       } else {
         pct = Number(scan.progress ?? 0);
       }

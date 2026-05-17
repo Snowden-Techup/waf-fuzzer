@@ -1,7 +1,9 @@
 from typing import List, Optional, Any, Dict
 import threading
+import logging
 import re
 import uuid
+import time
 from enum import Enum
 from dataclasses import dataclass, asdict
 import aiohttp
@@ -13,6 +15,8 @@ from core.models import Payload
 from modules.stored_xss.payloads import build_stored_xss_payloads, PayloadCategory, reload_payloads
 from modules.stored_xss.analyzer import analyze_stored_xss, _extract_injected_marker, _analyze_context_robust
 from fuzzer.request_builder import build_and_send_request
+
+logger = logging.getLogger(__name__)
 
 
 class ScanMode(Enum):
@@ -136,7 +140,8 @@ class StoredXSSModule(BaseModule):
             with self._stats_lock:
                 self.stats.total_payloads = len(payloads)
             return payloads
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"[{self.name}] 잘못된 카테고리 설정: {e}")
             return []
 
     def get_payload_count(self) -> int:
@@ -173,6 +178,7 @@ class StoredXSSModule(BaseModule):
                         self.stats.dom_potential += 1
             return is_hit
         except Exception as e:
+            logger.exception(f"[{self.name}] 분석 중 오류 발생: {e}")
             self._last_analysis_result = {
                 "is_vulnerable": False,
                 "context": "error",
@@ -211,6 +217,12 @@ class StoredXSSModule(BaseModule):
                 session, safe_surface, parameter, MockPayload(verify_payload_value)
             )
 
+            status_code = getattr(injection_res, 'status', 500) if injection_res else 500
+
+            if status_code >= 400:
+                logger.warning(
+                    f"[{self.name}] 2차 주입 시 응답 에러 (Status: {status_code}) - 파라미터: {parameter}. ")
+
             # =========================================================================
             #  동적 URL 수집 로직 (상세 페이지 파싱 추가)
             # =========================================================================
@@ -222,6 +234,7 @@ class StoredXSSModule(BaseModule):
                 candidate_urls.append(final_url)
 
             # (2) 응답 HTML 내부에서 "가장 최근에 작성된 것으로 보이는 게시물 링크" 추출 시도
+            # (게시판 목록 등으로 리다이렉트 되었을 경우 대비)
             injection_body = getattr(injection_res, 'text', '')
             if injection_body and '/board' in final_url:
                 try:
@@ -231,16 +244,17 @@ class StoredXSSModule(BaseModule):
                     except Exception:
                         soup = BeautifulSoup(injection_body, 'html.parser')
 
+                    # <a> 태그 중 상세조회용 URL 패턴을 포함하는 링크 추출
                     links = soup.find_all('a', href=lambda href: href and '/board/view?id=' in href)
 
                     if links:
                         from urllib.parse import urljoin
-                        for link in links[:5]:
+                        for link in links[:5]:  # 상위 5개의 최신 게시물 탐색
                             full_url = urljoin(base_url, link['href'])
                             if full_url not in candidate_urls:
                                 candidate_urls.append(full_url)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"응답 본문에서 링크 추출 실패: {e}")
 
             # (3) 폼을 제출했던 원래 URL 추가
             surface_url = getattr(surface, 'url', base_url)
@@ -257,26 +271,31 @@ class StoredXSSModule(BaseModule):
                 candidate_urls.append(base_url)
             # =========================================================================
 
+            # DB 반영을 위한 공통 대기시간 (2.5초) -> URL 전체 탐색 전 한 번만 대기
             await asyncio.sleep(2.5)
 
             is_vulnerable = False
             verified_location = ""
             hit_url = ""
 
+            # 여러 후보 URL을 순회하며 마커가 반사된 곳을 끈질기게 추적
             for check_url in candidate_urls:
                 if check_url not in self._target_locks:
                     self._target_locks[check_url] = asyncio.Lock()
 
                 verify_body = ""
                 async with self._target_locks[check_url]:
+                    # 무조건 최신 데이터를 요청하여 검증 신뢰도 상승
                     try:
                         req_cookies = getattr(surface, 'cookies', None)
                         async with session.get(check_url, headers=req_headers, cookies=req_cookies,
                                                timeout=15) as verify_res:
                             verify_body = await verify_res.text()
-                    except Exception:
+                    except Exception as get_err:
+                        logger.debug(f"[{self.name}] 검증 GET 요청 실패 ({check_url}): {repr(get_err)}")
                         continue
 
+                # 다중 출력 지점 전수 검사 (하나라도 성공할 때까지 분석)
                 if verify_marker in verify_body:
                     marker_indices = [m.start() for m in re.finditer(re.escape(verify_marker), verify_body)]
 
@@ -287,6 +306,7 @@ class StoredXSSModule(BaseModule):
 
                         context_state = _analyze_context_robust(body_slice, verify_marker, verify_marker)
 
+                        # 하나라도 실행 가능한 컨텍스트를 찾으면 즉시 취약점 확정
                         if context_state.get("executable"):
                             is_vulnerable = True
                             verified_location = context_state.get('location', 'unknown_location')
@@ -294,14 +314,22 @@ class StoredXSSModule(BaseModule):
                             break
 
                 if is_vulnerable:
-                    break
+                    break  # 취약점을 찾았으면 불필요한 다음 URL 검사 중지
 
+            # 로깅 및 결과 반환
             if is_vulnerable:
                 current_tested = self.stats.tested
                 progress_block = current_tested // 10
 
                 if progress_block not in self._logged_progress_blocks:
+                    logger.warning(
+                        f"[ST_XSS CONFIRMED] Param: {parameter} | Marker: {verify_marker} | Found at: {hit_url}"
+                    )
                     self._logged_progress_blocks.add(progress_block)
+                else:
+                    logger.debug(
+                        f"[ST_XSS MORE HITS] Param: {parameter} | Marker: {verify_marker}"
+                    )
 
                 if self._last_analysis_result:
                     self._last_analysis_result["context"] = f"Verified Stored | {verified_location}"
@@ -312,7 +340,8 @@ class StoredXSSModule(BaseModule):
 
             return is_vulnerable
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"[{self.name}] 검증 중 에러 발생: {repr(e)}")
             return False
 
     def _record_verified_stats(self):
