@@ -51,7 +51,6 @@ def load_payload_database() -> Dict[str, List[dict]]:
     with _CACHE_LOCK:
         if _PAYLOAD_DATABASE_CACHE: return _PAYLOAD_DATABASE_CACHE
         if not PAYLOAD_FILE_PATH.exists():
-            logger.error(f"[Payloads] 페이로드 파일을 찾을 수 없습니다: {PAYLOAD_FILE_PATH}")
             return {}
         try:
             with open(PAYLOAD_FILE_PATH, 'r', encoding='utf-8') as f:
@@ -60,10 +59,8 @@ def load_payload_database() -> Dict[str, List[dict]]:
                 _PAYLOAD_DATABASE_CACHE = raw_data
                 return _PAYLOAD_DATABASE_CACHE
             else:
-                logger.error("[Payloads] JSON 스키마 검증 실패")
                 return {}
-        except Exception as e:
-            logger.error(f"[Payloads] 로드 오류: {e}")
+        except Exception:
             return {}
 
 

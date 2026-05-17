@@ -1,14 +1,11 @@
 import html
 import re
 import difflib
-import logging
 import base64
 from html.parser import HTMLParser
 from typing import List, Optional, Any, Dict
 from bs4 import BeautifulSoup
 from core.models import Payload
-
-logger = logging.getLogger(__name__)
 
 # =====================================================================
 # 상수 및 설정 분리
@@ -204,7 +201,6 @@ def _check_executable_in_response(body: str, payload_value: str, marker: Optiona
     try:
         soup = BeautifulSoup(body, 'lxml')
     except Exception:
-        # lxml이 설치되지 않은 환경을 대비한 폴백
         soup = BeautifulSoup(body, 'html.parser')
 
     try:
@@ -216,20 +212,16 @@ def _check_executable_in_response(body: str, payload_value: str, marker: Optiona
             # 🌟 [개선 2] 단순히 속성 값이 아닌, "실행 가능한 속성"인지 엄격하게 검증
             def is_executable_attr_injection(tag):
                 for attr_name, attr_val in tag.attrs.items():
-                    # BeautifulSoup에서 다중 클래스 등은 리스트로 반환될 수 있으므로 문자열 변환
                     attr_val_str = str(attr_val).lower()
 
                     if m_lower in attr_val_str:
-                        # 조건 A: 속성명이 이벤트 핸들러 (onload, onerror, onmouseover 등)
                         if attr_name.lower().startswith('on'):
                             return True
-                        # 조건 B: 속성명이 URI/실행을 지원하며, 값에 javascript: 스킴이 포함된 경우
                         if attr_name.lower() in ['href', 'src', 'action', 'formaction', 'data']:
                             if 'javascript:' in attr_val_str:
                                 return True
                 return False
 
-            # 1. 실행 가능한 속성(이벤트 핸들러 등)에 식별자가 포함되었는지 검사
             suspect_tags = soup.find_all(is_executable_attr_injection)
             if suspect_tags:
                 result["executable"] = True
@@ -237,15 +229,14 @@ def _check_executable_in_response(body: str, payload_value: str, marker: Optiona
                 result["pattern_type"] = "bs4_dom_attribute_injection (Event/URI Protocol)"
                 return result
 
-            # 2. <script> 태그 내부에 온전히 삽입되었는지 검사
             script_tags = soup.find_all('script', string=re.compile(m, re.I))
             if script_tags:
                 result["executable"] = True
                 result["evidence"] = str(script_tags[0])[:200]
                 result["pattern_type"] = "bs4_dom_script_injection"
                 return result
-    except Exception as e:
-        logger.warning(f"BeautifulSoup parsing failed: {e}")
+    except Exception:
+        pass
 
     if soup.find() is not None:
         return result
@@ -302,21 +293,17 @@ def _analyze_context_robust(body: str, payload_value: str, marker: Optional[str]
     """
     payload_idx = body.find(payload_value)
 
-    #전체 페이로드가 짤렸더라도 마커가 살아있다면 인덱스를 마커 기준으로 갱신
     if payload_idx == -1:
         if marker and marker in body:
             payload_idx = body.find(marker)
         else:
             return {"executable": False, "location": "not_reflected"}
-    # 페이로드가 HTML 태그 밖의 단순 평문(Text Node)으로 렌더링되는지 확인
+
     try:
         soup = BeautifulSoup(body, 'lxml')
-        # 응답 본문 내의 모든 텍스트 노드 추출
         texts = soup.find_all(string=True)
         for text_node in texts:
             if payload_value in text_node or (marker and marker in text_node):
-                # 텍스트 노드 안에 그대로 반사되었다면 브라우저가 실행하지 않음 (안전)
-                # 단, <script>, <style> 내부의 텍스트 노드는 제외
                 parent_tag = text_node.parent.name if text_node.parent else ""
                 if parent_tag not in ['script', 'style', 'iframe']:
                     return {"executable": False, "location": "safe_text_node"}
@@ -324,8 +311,6 @@ def _analyze_context_robust(body: str, payload_value: str, marker: Optional[str]
         pass
 
     html_before_payload = body[:payload_idx]
-
-    # 이전 게시물의 깨진 태그에 갇히는 Phantom Attribute Trap 방지 (최근 500자 이내만 분석)
     recent_html = html_before_payload[-500:] if len(html_before_payload) > 500 else html_before_payload
 
     last_open_tag = recent_html.rfind('<')
@@ -352,7 +337,6 @@ def _analyze_context_robust(body: str, payload_value: str, marker: Optional[str]
             if quote_char in payload_value or '>' in payload_value:
                 return {"executable": True, "location": "attribute_breakout"}
             else:
-                # 속성에 갇힌 것처럼 보이더라도 즉시 종료하지 않고 BS4/정규식으로 한 번 더 확인 (교차 검증)
                 exec_check = _check_executable_in_response(body, payload_value, marker)
                 if exec_check["executable"]:
                     return {
@@ -364,10 +348,9 @@ def _analyze_context_robust(body: str, payload_value: str, marker: Optional[str]
 
     parser = XSSContextParser()
     try:
-        # 파서가 깨지는 것을 막기 위해 페이로드 이전의 문자열 일부만 파싱
         parser.feed(html_before_payload[-2000:])
     except Exception:
-        pass  # 파싱 에러 시 아래 정규식/BS4 검사로 폴백
+        pass
 
     if parser.is_safe_context():
         return {"executable": False, "location": "safe_tag"}
