@@ -159,12 +159,25 @@ class SQLiModule(BaseModule):
             try:
                 # 1. 장벽 대기
                 if not self._barrier_event.is_set():
-                    try:
-                        # 25초 후 데드락 해제
-                        await asyncio.wait_for(self._barrier_event.wait(), timeout=25.0)
-                    except asyncio.TimeoutError:
-                        if not self._time_phase_active:
-                            pass
+                    last_completed = -1
+                    stuck_count = 0
+                    
+                    while not self._barrier_event.is_set():
+                        try:
+                            await asyncio.wait_for(self._barrier_event.wait(), timeout=10.0)
+                        except asyncio.TimeoutError:
+                            current_completed = self._global_fast_completed
+                            
+                            if current_completed == last_completed:
+                                stuck_count += 1
+                            else:
+                                stuck_count = 0
+                                last_completed = current_completed
+                            
+                            # 30초(10초 * 3) 동안 일반 페이로드 완료 없으면 강제 돌파
+                            if stuck_count >= 3:
+                                self._barrier_event.set()
+                                break
                     
                 if not self._time_phase_active:
                     self._time_phase_active = True
