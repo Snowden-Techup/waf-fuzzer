@@ -1,12 +1,9 @@
 [PREFIX][CONCAT]echo [MARKER]$(([N1]+[N2]))$(echo [MARKER])[MARKER][SUFFIX]::: in-band::: Low::: Unix::: SHELL COMMAND
-[PREFIX][CONCAT]str=$(echo [MARKER])[CONCAT]str1=${#str}[CONCAT]if [ [N] -ne ${str1} ][CONCAT]then sleep 0[CONCAT]else sleep 5[CONCAT]fi[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
 [PREFIX] echo [MARKER]$(([N1]+[N2]))$(echo [MARKER])[MARKER][SUFFIX]::: in-band::: Low::: Unix::: SHELL COMMAND
-[PREFIX][CONCAT] sleep 0 [CONCAT] str=$(echo [MARKER]) [CONCAT] str1=${#str} [CONCAT] [ [N] -eq ${str1} ] [CONCAT] sleep 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
 [PREFIX][CONCAT]}print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 [PREFIX]print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 [PREFIX][CONCAT]print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 [PREFIX]echo [MARKER]$(([N1]+[N2]))$(echo [MARKER])[MARKER][SUFFIX]::: in-band::: Low::: Unix::: SHELL COMMAND
-[PREFIX][CONCAT] [ [N] -ne $(echo [MARKER] [CONCAT] tr -d '[CONCAT]' [CONCAT] wc -c) ] [CONCAT] sleep 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
 ${exec(print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 ${passthru(print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 ${popen(print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
@@ -16,45 +13,62 @@ ${shell_exec(print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER
 ${system(print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Unix::: PHP
 [PREFIX][CONCAT]}print(`echo [MARKER][CONCAT]echo $(([N1]+[N2]))[CONCAT]echo [MARKER][CONCAT]echo [MARKER]`)[SUFFIX]::: in-band::: Low::: Unix::: PHP
 & echo [MARKER]$(([N1]+[N2]))$(echo [MARKER])[MARKER]::: in-band::: Low::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT]str=$(echo [MARKER])[CONCAT]str1=${#str}[CONCAT]if [ [N] -ne ${str1} ][CONCAT]then sleep 0[CONCAT]else sleep 5[CONCAT]fi[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] sleep 0 && str=$(echo [MARKER]) && str1=${#str} && [ [N] -eq ${str1} ] && sleep 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] [ [N] -ne $(echo [MARKER] | tr -d '\n' | wc -c) ] || sleep 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] sleep 0 && str=$(echo [MARKER]) && str1=${#str} && [ [N] -eq ${str1} ] && ping -c 6 127.0.0.1[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] [ [N] -ne $(echo [MARKER] | tr -d '\n' | wc -c) ] || ping -c 6 127.0.0.1[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] sleep 0 && str=$(echo [MARKER]) && str1=${#str} && [ [N] -eq ${str1} ] && timeout 5 sleep 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] [ [N] -ne $(echo [MARKER] | tr -d '\n' | wc -c) ] || timeout 5 tail -f /dev/null[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] sleep 0 && str=$(echo [MARKER]) && str1=${#str} && [ [N] -eq ${str1} ] && read -t 5[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
+[PREFIX][CONCAT] [ [N] -ne $(echo [MARKER] | tr -d '\n' | wc -c) ] || awk 'BEGIN{system("sleep 5")}'[SUFFIX]::: time-based::: High::: Unix::: SHELL COMMAND
 
-${exec(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
-${passthru(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
-${shell_exec(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
-[PREFIX][CONCAT]}print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
-[PREFIX]print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
+
+${exec(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
+${passthru(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
+${shell_exec(print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
+[PREFIX][CONCAT]}print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
+[PREFIX]print(`cmd /c echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
 ${exec(print(`powershell echo [MARKER]$([N1]+[N2])[MARKER]`))[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
 [PREFIX][CONCAT]}print(`powershell echo [MARKER]$([N1]+[N2])[MARKER]`)[SUFFIX][MARKER]::: in-band::: Low::: Windows::: PHP
-${system(print(`cmd /c timeout /t 1`))[SUFFIX][MARKER]::: time-based::: High::: Windows::: PHP
+${system(print(`cmd /c timeout /t 5`))[SUFFIX][MARKER]::: time-based::: High::: Windows::: PHP
 ${shell_exec(print(`powershell Start-Sleep 5`))[SUFFIX][MARKER]::: time-based::: High::: Windows::: PHP
-[PREFIX]print(`cmd /c timeout /t 1`)[SUFFIX][MARKER]::: time-based::: High::: Windows::: PHP
+[PREFIX]print(`cmd /c timeout /t 5`)[SUFFIX][MARKER]::: time-based::: High::: Windows::: PHP
 
-[PREFIX][CONCAT]set /a res=[N1]+[N2][CONCAT]echo [MARKER]%res%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
-[PREFIX] set /a res=[N1]+[N2][CONCAT]echo [MARKER]%res%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]echo [MARKER]%x%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo [MARKER]%res%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
+[PREFIX] set /a res=[N1]+[N2][CONCAT]call echo [MARKER]%res%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]call echo [MARKER]%x%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX][CONCAT]echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX]echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX][CONCAT]cmd /c set /a res=[N1]+[N2][CONCAT]call echo [MARKER]%res%[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
-[PREFIX] echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
+[PREFIX] echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX][CONCAT]set /a [N1]+[N2][CONCAT]echo %errorlevel%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]echo %res%[CONCAT]echo [MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]echo [MARKER][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo %res%[CONCAT]echo [MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX] set /a [N1]+[N2][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
 [PREFIX][CONCAT]set /a res=[N1]+[N2][CONCAT]call echo [MARKER]%res%[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]set str=[MARKER][CONCAT]if %str%==[N] timeout /t 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
-[PREFIX] set str=[MARKER][CONCAT]if %str%==[N] timeout /t 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]timeout /t 0[CONCAT]set str=[MARKER][CONCAT]if %str%==[N] timeout /t 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" timeout /t 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX] set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" timeout /t 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]timeout /t 0[CONCAT]set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" timeout /t 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
 [PREFIX][CONCAT]set "s=[MARKER]"[CONCAT]if "%s%"=="[MARKER]" (ping -n [N] 127.0.0.1)[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
 [PREFIX] set "s=[MARKER]"[CONCAT]if "%s%"=="[MARKER]" (ping -n [N] 127.0.0.1)[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]if %x%==[N] (ping -n 2 127.0.0.1)[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
-[PREFIX][CONCAT]timeout /t 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]if %x%==[N] (ping -n 6 127.0.0.1)[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]timeout /t 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" waitfor /t 5 ANY_SIG[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]if %x% EQU [N] waitfor /t 5 ANY_SIG[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" choice /C Y /N /D Y /T 5 >nul[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set /a x=[N1]+[N2][CONCAT]if %x% EQU [N] choice /C Y /N /D Y /T 5 >nul[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
+[PREFIX][CONCAT]set "str=[MARKER]"[CONCAT]if "%str%"=="[MARKER]" w32tm /stripchart /computer:localhost /period:1 /dataonly /samples:6 >nul[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (CMD)
 
 [PREFIX][CONCAT]powershell echo [MARKER]$([N1]+[N2])[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (PS)
 [PREFIX] powershell echo [MARKER]$([N1]+[N2])[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (PS)
 [PREFIX][CONCAT]powershell Write-Output [MARKER]$([N1]+[N2])[MARKER][SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (PS)
 [PREFIX] echo [MARKER][CONCAT]powershell $([N1]+[N2])[SUFFIX]::: in-band::: Low::: Windows::: SHELL COMMAND (PS)
-[PREFIX][CONCAT]powershell -c "if (([MARKER]).Length -ne [N]) { Start-Sleep 0 } else { Start-Sleep 5 }"[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
-[PREFIX] powershell -c "if (([MARKER]).Length -ne [N]) { Start-Sleep 0 } else { Start-Sleep 5 }"[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
-[PREFIX][CONCAT]powershell Start-Sleep -s 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
-[PREFIX] powershell Start-Sleep -s 1[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
-[PREFIX]|powershell if($([MARKER]).Length -ne [N]){Start-Sleep 5}[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX][CONCAT]powershell -c "if (('[MARKER]').Length -ne [N]) { Start-Sleep 0 } else { Start-Sleep 5 }"[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX] powershell -c "if (('[MARKER]').Length -ne [N]) { Start-Sleep 0 } else { Start-Sleep 5 }"[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX][CONCAT]powershell Start-Sleep -s 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX] powershell Start-Sleep -s 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX]|powershell if(('[MARKER]').Length -ne [N]){Start-Sleep 5}[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
 [PREFIX] powershell Start-Sleep 5[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
 [PREFIX][CONCAT]powershell $s='[MARKER]';if($s.Length -eq [N]){Start-Sleep 5}[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX][CONCAT]powershell -c "if (('[MARKER]').Length -eq [N]) { Wait-Event -Timeout 5 }"[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)
+[PREFIX]|powershell if(('[MARKER]').Length -eq [N]){Wait-Event -Timeout 5}[SUFFIX]::: time-based::: High::: Windows::: SHELL COMMAND (PS)

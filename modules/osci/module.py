@@ -143,7 +143,7 @@ class OSCiModule(BaseModule):
             else:
                 value = value.replace("echo", "ec^ho")
                 value = value.replace("set", "s^et")
-                
+
                 if "PS" in action_level:
                     value = value.replace("Write-Output", "W'rite-O'utput")
         
@@ -190,16 +190,32 @@ class OSCiModule(BaseModule):
                 self._time_attack_in_flight += 1
 
             try:
+                # 1. 장벽 대기
                 if not self._barrier_event.is_set():
-                    try:
-                        await asyncio.wait_for(self._barrier_event.wait(), timeout=25.0)
-                    except asyncio.TimeoutError:
-                        if not self._time_phase_active:
-                            pass
+                    last_completed = -1
+                    stuck_count = 0
                     
+                    while not self._barrier_event.is_set():
+                        try:
+                            await asyncio.wait_for(self._barrier_event.wait(), timeout=10.0)
+                        except asyncio.TimeoutError:
+                            current_completed = self._global_fast_completed
+                            
+                            if current_completed == last_completed:
+                                stuck_count += 1
+                            else:
+                                stuck_count = 0
+                                last_completed = current_completed
+                            
+                            # 30초(10초 * 3) 동안 일반 페이로드 완료 없으면 강제 돌파
+                            if stuck_count >= 3:
+                                self._barrier_event.set()
+                                break
+                        
                 if not self._time_phase_active:
                     self._time_phase_active = True
 
+                # 2. 전역 직렬 실행 락
                 async with self._global_time_lock:
                     real_val = getattr(payload, "_real_time_value", "test")
                     actual_payload = dataclasses.replace(payload, value=real_val)
@@ -209,6 +225,7 @@ class OSCiModule(BaseModule):
                         real_res = await requester(real_val)
                         real_elapsed = asyncio.get_event_loop().time() - start_ts
                         
+                        # 서버 회복 대기
                         await asyncio.sleep(4.5)
 
                         is_hit, evidences = detect_osci(
@@ -237,6 +254,7 @@ class OSCiModule(BaseModule):
                     self._time_attack_in_flight -= 1
                     if self._time_attack_in_flight == 0:
                         if self._time_phase_active:
+                            
                             self._barrier_event.clear()
                             self._time_phase_active = False
 

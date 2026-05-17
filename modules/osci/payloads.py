@@ -118,30 +118,26 @@ def get_osci_payloads(target_filter: str = "Unix") -> list[Payload]:
         is_shell   = (m_level == "SHELL COMMAND") # Unix Generic
 
         if is_unix:
-            if is_shell and "tr -d '[CONCAT]'" in payload:
-                replacements = ["|", "|", "\n", "|", "||"]
-                new_payload = payload
-                for r in replacements:
-                    new_payload = new_payload.replace("[CONCAT]", r, 1)
-                for s in _get_suffixes(False, True, False, attack_type):
-                    final_payload_objects.append(_finalize(new_payload.replace("[SUFFIX]", s), item))
-
-            elif is_shell and re.match(r'^[\'"]?\[CONCAT\] sleep 0', payload):
-                replacements = ["&", "&&", "&&", "&&", "&&"]
-                new_payload = payload
-                for r in replacements:
-                    new_payload = new_payload.replace("[CONCAT]", r, 1)
-                for s in _get_suffixes(False, True, False, attack_type):
-                    final_payload_objects.append(_finalize(new_payload.replace("[SUFFIX]", s), item))
+            if is_shell and ("tr -d" in payload or re.match(r'^[\'"]?\[CONCAT\] sleep 0', payload)):
+                first_delimiters = ["|", "&", ";"]
+                for first_concat in first_delimiters:
+                    new_payload = payload.replace("[CONCAT]", first_concat, 1)
+                    
+                    for s in _get_suffixes(False, True, False, attack_type):
+                        final_payload_objects.append(_finalize(new_payload.replace("[SUFFIX]", s), item))
 
             elif is_shell:
-                shell_delimiters = ["\n", "&&", "&", ";", "|", "||"]
+                if "if [" in payload or "str=" in payload:
+                    shell_delimiters = [";", "&&", "\n"] 
+                else:
+                    shell_delimiters = ["\n", "&&", "&", ";", "|", "||"]
+                    
                 for d in shell_delimiters:
                     temp_payload = payload
                     if d == ";":
                         new_p = temp_payload.replace("[CONCAT]echo", ";echo").replace("[CONCAT]", "; ")
                     else:
-                        new_p = temp_payload.replace("[CONCAT]", d)
+                        new_p = temp_payload.replace("[CONCAT]", f" {d} ")
                     
                     for s in _get_suffixes(False, True, False, attack_type):
                         final_payload_objects.append(_finalize(new_p.replace("[SUFFIX]", s), item))
@@ -213,11 +209,21 @@ def _finalize(val: str, meta: Dict[str, Any]) -> Payload:
 
     # [N] 치환 로직
     wc_pattern = r"wc -c.*\[N\]|\[N\].*wc -c"
-    marker_len_patterns = [r"-ne \[N\]", r"-eq \[N\]", r"\.Length -ne \[N\]", r"\.Length -eq \[N\]", r"==\[N\]", r"== \[N\]"]
-    ping_pattern = r"ping -n \[N\]"
+    
+    marker_len_patterns = [
+        r"-ne\s*\[N\]", r"\[N\]\s*-ne",
+        r"-eq\s*\[N\]", r"\[N\]\s*-eq",
+        r"\.Length\s*-ne\s*\[N\]", r"\.Length\s*-eq\s*\[N\]",
+        r"==\s*\[N\]", r"\[N\]\s*=="
+    ]
+    ping_pattern = r"ping -n\s*\[N\]"
 
     if re.search(wc_pattern, val):
-        res = res.replace("[N]", str(MARKER_LEN_WC))
+        if "tr -d '\\n'" in val or "tr -d" in val:
+            res = res.replace("[N]", str(MARKER_LEN))     # 8
+        else:
+            res = res.replace("[N]", str(MARKER_LEN_WC))  # 9
+            
     elif re.search(ping_pattern, val):
         res = res.replace("[N]", "5")
     elif any(re.search(p, val) for p in marker_len_patterns):
