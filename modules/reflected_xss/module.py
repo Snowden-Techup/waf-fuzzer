@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import urllib.parse
+import dataclasses
 from urllib.parse import urlparse, parse_qs
 import logging
 from typing import List, Any
@@ -87,38 +88,36 @@ class ReflectedXSSModule(BaseModule):
             elapsed_time: float,
             original_res: Any = None,
             requester: Any = None,
-    ) -> bool:
+    ):
         """XSS 취약점 분석"""
+        # 실패 시 엔진 규격에 맞게 반환할 기본 튜플 (False, 증거없음, 원본페이로드)
+        FAIL = (False, [], payload)
+
         try:
-            # Content-Type 필터 (JSON/XML 등 비 HTML 응답 스킵)
+            # 1. Content-Type 필터
             content_type = str(getattr(response, 'content_type', '') or
                                getattr(response, 'headers', {}).get('content-type', '')).lower()
+            allowed_types = ('text/html', 'application/xhtml', 'text/javascript', 
+                             'application/javascript', 'text/plain')
 
-            # 빈 문자열('') 제거 및 로직 개선
-            allowed_types = ('text/html', 'application/xhtml', 'text/javascript', 'application/javascript',
-                             'text/plain')
-
-            # Content-Type이 존재하는데 허용한 타입이 아니라면 분석 스킵 (json, image 등 차단)
             if content_type and not any(ct in content_type for ct in allowed_types):
-                return False
+                return FAIL
 
-            # 요청 URL 추출
+            # 2. URL 및 파라미터 추출
             req_url = ""
             if requester and hasattr(requester, 'url'):
                 req_url = str(requester.url)
             else:
                 req_url = str(getattr(response, 'url', ''))
 
-            # Parameter 추출
             target_parameter = self._extract_parameter(requester, response)
-
             if target_parameter == "unknown" and req_url:
                 target_parameter = self._smart_recover_parameter(req_url, payload)
 
-            # 응답 텍스트
+            # 3. 텍스트 추출 및 길이 제한
             res_text = getattr(response, 'text', None)
             if not res_text:
-                return False
+                return FAIL
 
             if len(res_text) > self.max_response_size:
                 res_text = res_text[:self.max_response_size]
@@ -143,55 +142,75 @@ class ReflectedXSSModule(BaseModule):
                 payload_value
             )
 
+            # 실패 시 엔진에 반환할 기본 튜플 (엔진 호환용)
+            FAIL = (False, [], payload)
+
             # ========================================================
             # 중복 제거 (Dedup) 및 리포트 기록 부분
             # ========================================================
             if result.is_vulnerable and result.confidence != Confidence.NONE:
-
-                # 500 에러 페이지 등급 강등 (노이즈 제거)
                 status_code = getattr(response, 'status', getattr(response, 'status_code', 200))
-                if status_code >= 500:
-                    # 500 에러에서 반사된 경우 HIGH를 MEDIUM으로 강등
-                    if result.confidence == Confidence.HIGH:
-                        result.confidence = Confidence.MEDIUM
-                    # 리포트 증거에 500 에러임을 표시
-                    result.evidence = f"[500 Error Downgraded] {result.evidence}"
-                    if result.confidence == Confidence.LOW:
-                        return False
+                
+                # 상태 코드 노이즈 튜닝 (미탐 방지 + 강등)
+                if status_code != 200:
+                    if status_code in (403, 406):
+                        result.confidence = Confidence.LOW
+                        result.evidence = f"[WAF Block] {result.evidence}"
+                    elif status_code in (400, 404):
+                        if result.confidence == Confidence.HIGH:
+                            result.confidence = Confidence.MEDIUM
+                        result.evidence = f"[{status_code} Error] {result.evidence}"
+                    elif status_code >= 500:
+                        if result.confidence == Confidence.HIGH:
+                            result.confidence = Confidence.MEDIUM
+                        result.evidence = f"[500 Error Downgraded] {result.evidence}"
 
-                # 1. 카테고리 추출 (대분류:소분류 까지 세분화)
+                    # LOW 등급(찌꺼기)은 보고서 오염을 막기 위해 여기서 버림
+                    if result.confidence == Confidence.LOW:
+                        return FAIL
+
                 attack_type = getattr(payload, 'attack_type', '')
                 parts = attack_type.split(':')
-
-                # 'event_handler:auto_execution' 형태로 세분화하여 미탐 방지
-                if len(parts) >= 3:
-                    category = f"{parts[1]}:{parts[2]}"
-                elif len(parts) == 2:
-                    category = parts[1]
+                
+                # 카테고리를 대분류까지만 자름 (예: reflected_xss:event_handler)
+                if len(parts) >= 2:
+                    category = f"{parts[0]}:{parts[1]}"
                 else:
                     category = attack_type
 
-                # 2. 쿼리를 제외한 순수 URL 추출
                 raw_url = str(getattr(response, 'url', ''))
                 parsed = urlparse(raw_url)
                 base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-                # 3. 고유 키 생성 (URL + 파라미터 + 공격 종류)
                 dedup_key = (base_url, target_parameter, category)
 
-                # 4. 수첩에 없는 새로운 발견일 때만 리포트에 기록
                 if dedup_key not in self.reported_findings:
                     self.reported_findings.add(dedup_key)
                     self._attach_metadata(payload, result, target_parameter, response)
-                    return True
-                else:
-                    return False  # 중복 공격이면 무시함
+                    
+                    final_risk = result.confidence.name
+                    if final_risk != payload.risk_level:
+                        payload = dataclasses.replace(payload, risk_level=final_risk)
 
-            return False
+                    # 엔진 규격에 맞게 상세 증거(evidences) 리스트 작성
+                    evidences = [
+                        f"Confidence: {result.confidence.name}",
+                        f"Context: {result.context.name}",
+                        f"Evidence: {result.evidence}",
+                        f"Category: {category}",
+                        f"Status: {status_code}"
+                    ]
+                    
+                    # 엔진에 (True, 증거, 덮어씌운 페이로드) 튜플 반환!
+                    return (True, evidences, payload)
+                else:
+                    return FAIL  # 중복 공격 무시
+
+            return FAIL
 
         except Exception as e:
             logger.error(f"[XSS] 분석 중 오류: {e}", exc_info=True)
-            return False
+            return (False, [], payload)  # 에러 발생 시에도 엔진 호환 규격으로 반환
 
     def _smart_recover_parameter(self, url: str, payload: Any) -> str:
         """URL에서 페이로드가 주입된 파라미터 역추적"""
@@ -246,5 +265,4 @@ class ReflectedXSSModule(BaseModule):
 
     def _attach_metadata(self, payload: Any, result, parameter: str, response: Any) -> None:
         """결과 메타데이터 첨부"""
-        
         pass

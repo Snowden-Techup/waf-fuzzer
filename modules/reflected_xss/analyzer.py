@@ -1,8 +1,3 @@
-"""
-Reflected XSS 분석 모듈
-- 전체 매칭: 교차 검증으로 오탐 방지
-- 부분 매칭(마커): 컨텍스트 기반 탐지로 필터 우회 탐지
-"""
 from __future__ import annotations
 
 import re
@@ -234,22 +229,11 @@ def _analyze_danger(
         context: XSSContext,
         is_partial: bool = False
 ) -> Tuple[bool, str]:
-    """
-    위험도 분석
-
-    - is_partial=False (전체 매칭): 교차 검증으로 오탐 방지
-    - is_partial=True (부분 매칭): 마커 컨텍스트 기반 탐지
-    """
     area_lower = area.lower()
     payload_lower = payload.lower()
     evidence_parts: List[str] = []
 
     if is_partial:
-        # ============================================================
-        # [성능 최적화 Fast-Path] 정규식을 돌리기 전에
-        # 단순 문자열 비교로 먼저 걸러서 CPU 병목(프리징)을 완벽히 차단
-        # ============================================================
-
         # 1. 이벤트 핸들러 검사 (on, = 가 있을 때만 정규식 실행)
         if "on" in area_lower and "=" in area_lower:
             if re.search(r'on\w+\s*=\s*["\']?[^"\'>\s]*xSsM4rK3r', area, re.I):
@@ -270,8 +254,11 @@ def _analyze_danger(
                 evidence_parts.append("Marker in JavaScript URI")
 
         # 4. 위험한 JS 함수 검사
-        if any(func in area_lower for func in ['alert', 'confirm', 'prompt', 'eval']):
-            if re.search(r'(alert|confirm|prompt|eval)\s*[(`][^)`]*xSsM4rK3r', area, re.I):
+        if any(func in area_lower for func in ['alert', 'confirm', 'prompt', 'eval', 'console.log']):
+            if re.search(
+                r'(alert|confirm|prompt|eval|console\s*\.\s*log)\s*[(`][^)`]*xSsM4rK3r',
+                area, re.I
+            ):
                 evidence_parts.append("Marker in JS function call")
 
             if _RE_DANGEROUS_JS.search(area) and _MARKER_PATTERN.search(area):
@@ -281,37 +268,28 @@ def _analyze_danger(
     else:
         # ============================================================
         # 전체 매칭: 교차 검증 (오탐 방지)
-        # (페이로드가 그대로 반사된 경우)
         # ============================================================
-
-        # Script 태그: 응답과 페이로드 모두에 있어야 함
         if '<script' in area_lower or '</script' in area_lower:
             if '<script' in payload_lower or '</script' in payload_lower:
                 evidence_parts.append("Script tag injection")
 
-        # 이벤트 핸들러: 양쪽 모두에 있어야 함
         if _RE_EVENT_HANDLER.search(area):
             if _RE_EVENT_HANDLER.search(payload):
                 evidence_parts.append("Event handler detected")
 
-        # 위험한 JS 함수: 양쪽 모두에 있어야 함
         if _RE_DANGEROUS_JS.search(area):
             if _RE_DANGEROUS_JS.search(payload):
                 evidence_parts.append("Dangerous JS function")
 
-        # JavaScript URI: 양쪽 모두에 있어야 함
         if _RE_JS_URI.search(area):
             if _RE_JS_URI.search(payload):
                 evidence_parts.append("JavaScript URI injection")
 
-        # Data URI: 양쪽 모두에 있어야 함
         if _RE_DATA_URI.search(area):
             if _RE_DATA_URI.search(payload):
                 evidence_parts.append("Data URI injection")
 
-    # ============================================================
     # 컨텍스트별 추가 체크 (공통)
-    # ============================================================
     if context in (XSSContext.HTML_ATTRIBUTE_DOUBLE, XSSContext.HTML_ATTRIBUTE_SINGLE):
         quote = '"' if context == XSSContext.HTML_ATTRIBUTE_DOUBLE else "'"
         if quote in payload or '>' in payload:
@@ -373,7 +351,6 @@ def _calc_confidence(
     else:
         base = Confidence.LOW
 
-    # 부분 매칭이면서 강력 지표 없으면 한 단계 하향
     if is_partial and not has_strong:
         if base == Confidence.HIGH:
             return Confidence.MEDIUM
@@ -460,24 +437,17 @@ def detect_reflected_xss(
     clean_orig = _strip_comments(orig_text) if orig_text else ""
     res_lower = clean_res.lower()
 
-    # ============================================================
     # 1단계: 전체 매칭
-    # ============================================================
     variants = _get_payload_variants(payload_value)
     full_match = any(v.lower() in res_lower for v in variants)
 
-    # ============================================================
     # 조기 종료 (성능 최적화)
-    # 전체 매칭 실패 시, 마커가 응답에 아예 없으면 즉시 종료
-    # ============================================================
     marker = _MARKER_PATTERN.search(payload_value)
     if not full_match:
         if not marker or marker.group(0).lower() not in res_lower:
             return XSSResult(False, Confidence.NONE, XSSContext.UNKNOWN)
 
-    # ============================================================
     # 2단계: 마커 매칭 (전체 실패 시)
-    # ============================================================
     marker_match = False
     matched_marker = ""
 
@@ -490,23 +460,17 @@ def detect_reflected_xss(
     is_partial = not full_match and marker_match
     search_term = matched_marker if is_partial else payload_value
 
-    # ============================================================
     # 3단계: Baseline 검증
-    # ============================================================
     check_value = matched_marker if is_partial else payload_value
     if clean_orig and not _verify_diff(clean_res, clean_orig, check_value):
         return XSSResult(False, Confidence.NONE, XSSContext.UNKNOWN, "Exists in baseline")
 
-    # ============================================================
     # 4단계: 위치 검색
-    # ============================================================
     positions = _find_positions(res_lower, payload_value, search_term)
     if not positions:
         return XSSResult(False, Confidence.NONE, XSSContext.UNKNOWN)
 
-    # ============================================================
     # 5단계: 각 위치 분석
-    # ============================================================
     best = (Confidence.NONE, XSSContext.UNKNOWN, "")
 
     for pos in positions[:10]:
@@ -521,14 +485,31 @@ def detect_reflected_xss(
         area_size = max(200, len(payload_value) + 100)
         area = clean_res[max(0, pos - area_size):pos + area_size]
 
-        # is_partial 전달하여 분기 처리
         has_danger, evidence = _analyze_danger(area, payload_value, context, is_partial)
         conf = _calc_confidence(context, has_danger, evidence, payload_value, is_partial)
+
+        # ============================================================
+        # [2차 검증 로직 추가] 
+        # 페이로드가 닫힌 괄호('>')를 포함하고 있고 결과 신뢰도가 HIGH가 나온 경우,
+        # 주변 문자열의 따옴표 개수나 태그 시작점 밸런스를 한 번 더 체크하여 
+        # 속성값 내부에 포함된 '>'에 의해 HTML_TEXT로 오판되었는지 교차 검증합니다.
+        # ============================================================
+        if conf == Confidence.HIGH and any('>' in v for v in variants):
+            start_idx = max(0, pos - 1000)
+            before_snippet = clean_res[start_idx:pos]
+            last_lt_idx = before_snippet.rfind('<')
+            if last_lt_idx != -1:
+                tag_snippet = before_snippet[last_lt_idx:]
+                double_quotes = tag_snippet.count('"')
+                single_quotes = tag_snippet.count("'")
+                # 따옴표 개수가 홀수라면 현재 위치는 속성값 스트링 내부로 판정되므로 LOW로 재조정(Recalibrate)
+                if double_quotes % 2 != 0 or single_quotes % 2 != 0:
+                    conf = Confidence.LOW
+                    evidence = f"[Context Recalibrated] Downgraded due to attribute quote imbalance; {evidence}"
 
         if _is_better(conf, best[0]):
             best = (conf, context, evidence)
 
-        # 확실한 증거를 찾았다면 해당 응답 분석은 종료 (범용 최적화)
         if best[0] == Confidence.HIGH:
             break
 
