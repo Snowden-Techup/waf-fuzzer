@@ -697,13 +697,14 @@
                 <option value="file_upload">file_upload</option>
                 <option value="ssrf">ssrf</option>
                 <option value="stored_xss">stored_xss</option>
+                <option value="reflected_xss">reflected_xss</option>
               </select>
             </div>
             <div class="mt-3">
               <label class="form-label" for="level">우회 단계</label>
               <input id="level" type="number" class="form-control" min="0" max="3" value="1">
               <div class="field-help">
-                SQLi·LFI·SSRF·Stored XSS 우회 단계. OSCi는 모듈별 상세에서 설정합니다. bruteforce에는 적용되지 않습니다.
+                SQLi·LFI·SSRF·Stored XSS 우회 단계. OSCi·Reflected XSS는 모듈별 상세에서 설정합니다. bruteforce에는 적용되지 않습니다.
               </div>
             </div>
           </div>
@@ -978,6 +979,17 @@
               </div>
             </div>
             </div>
+
+            <div id="detailPanelRxss" class="module-detail-panel" hidden>
+            <div class="row g-2 mb-3">
+              <div class="col-12 hint">Reflected XSS</div>
+              <div class="col-md-4">
+                <label class="form-label" for="rxss_evasion_level">우회 단계</label>
+                <input id="rxss_evasion_level" type="number" class="form-control" min="0" max="3" value="1">
+                <div class="field-help">--rxss-evasion-level (0=원본, 1=기본 WAF 우회, 2=인코딩, 3=난독화)</div>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
         </div>
@@ -1079,6 +1091,7 @@
     const detailPanelBf = document.getElementById("detailPanelBf");
     const detailPanelSsrf = document.getElementById("detailPanelSsrf");
     const detailPanelSxss = document.getElementById("detailPanelSxss");
+    const detailPanelRxss = document.getElementById("detailPanelRxss");
     const moduleDetailHint = document.getElementById("moduleDetailHint");
     let lastScanId = "";
     let pollTimer = null;
@@ -1176,13 +1189,15 @@
       const showBf = t === "bruteforce";
       const showSsrf = t === "all" || t === "ssrf";
       const showSxss = t === "all" || t === "stored_xss";
-      const any = showSqli || showOsci || showBf || showSsrf || showSxss;
+      const showRxss = t === "all" || t === "reflected_xss";
+      const any = showSqli || showOsci || showBf || showSsrf || showSxss || showRxss;
 
       detailPanelSqli.hidden = !showSqli;
       detailPanelOsci.hidden = !showOsci;
       detailPanelBf.hidden = !showBf;
       detailPanelSsrf.hidden = !showSsrf;
       detailPanelSxss.hidden = !showSxss;
+      detailPanelRxss.hidden = !showRxss;
       moduleDetailSection.hidden = !any;
 
       const labels = [];
@@ -1191,6 +1206,7 @@
       if (showBf) labels.push("Bruteforce");
       if (showSsrf) labels.push("SSRF");
       if (showSxss) labels.push("Stored XSS");
+      if (showRxss) labels.push("Reflected XSS");
       moduleDetailHint.textContent = labels.length ? labels.join(" · ") : "";
     }
 
@@ -1200,6 +1216,8 @@
     document.getElementById("level").addEventListener("input", () => {
       const osciLevel = document.getElementById("osci_evasion_level");
       if (osciLevel) osciLevel.value = document.getElementById("level").value;
+      const rxssLevel = document.getElementById("rxss_evasion_level");
+      if (rxssLevel) rxssLevel.value = document.getElementById("level").value;
     });
 
     function toInt(id, fallback = 0) {
@@ -1454,6 +1472,9 @@
           max_risk_level: document.getElementById("sxss_max_risk_level").value,
           categories: parseCommaList(document.getElementById("sxss_categories").value),
           target_params: parseCommaList(document.getElementById("sxss_target_params").value)
+        },
+        reflected_xss: {
+          evasion_level: toInt("rxss_evasion_level", 1)
         }
       };
     }

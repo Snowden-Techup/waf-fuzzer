@@ -12,6 +12,8 @@ _SSRF_INTERNAL_CLASS = "SSRF-Internal"
 _SSRF_OOB_CLASS = "SSRF-OOB"
 _BRUTEFORCE_CLASS = "Bruteforce"
 _STORED_XSS_CLASS = "stored_xss"
+_REFLECTED_XSS_CLASS = "Reflected XSS"
+_RXSS_MODULE_NAME = "rxss"
 
 # Consolidated File Upload report classes (group 12+ fixed + Bypass_* variants).
 _FILE_UPLOAD_WEBSHELL = "FileUpload-Webshell"
@@ -131,6 +133,13 @@ def _osci_report_type(raw_type: str) -> str:
     return "OSCi-in_band"
 
 
+def _is_reflected_xss_record(record: dict[str, Any]) -> bool:
+    if _module_name(record) == _RXSS_MODULE_NAME:
+        return True
+    raw = _raw_attack_type(record).lower()
+    return raw == "reflected xss" or raw.startswith("reflected_xss")
+
+
 def report_attack_type(record: dict[str, Any]) -> str:
     """
     Canonical ``attack_info.type`` for scan_report.json grouping and display.
@@ -150,6 +159,9 @@ def report_attack_type(record: dict[str, Any]) -> str:
 
     if module == "stored_xss" or base_type.lower() == _STORED_XSS_CLASS:
         return _STORED_XSS_CLASS
+
+    if _is_reflected_xss_record(record) or base_type.lower().startswith("reflected_xss"):
+        return _REFLECTED_XSS_CLASS
 
     if module == "File Upload":
         return _file_upload_report_type(raw_type)
