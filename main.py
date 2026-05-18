@@ -16,6 +16,7 @@ async def main() -> None:
     args = parse_arguments()
     if args.level is not None:
         args.sqli_evasion_level = args.level
+        args.osci_evasion_level = args.level
         args.lfi_evasion_level = args.level
         args.ssrf_evasion_level = min(args.level, 2)
     try:

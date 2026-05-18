@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--type",
         type=str,
         default="all",
-        choices=["sqli", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss", "all"],
+        choices=["sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss", "all"],
         help=(
             "Attack category (default: all). For bruteforce without --bf-target-url, "
             "surfaces come from the crawler; BruteforceModule.get_target_parameters filters targets."
@@ -108,8 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="N",
         help=(
-            "Set SQLi, LFI, and SSRF evasion level to N at once (bruteforce unchanged). "
-            "SSRF is capped at 2. Overrides --sqli-evasion-level, --lfi-evasion-level, "
+            "Set SQLi, OSCi, LFI, and SSRF evasion level to N at once (bruteforce unchanged). "
+            "SSRF is capped at 2. Overrides --sqli-evasion-level, --osci-evasion-level, --lfi-evasion-level, "
             "and --ssrf-evasion-level when set."
         ),
     )
@@ -253,9 +253,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[0, 1, 2, 3],
         default=0,
         help=(
-            "SQLi evasion intensity (cumulative per payload pass): "
-            "0=raw only; 1=keyword mixed-case; 2=+space as /**/; "
-            "3=+double URL-encode and %%00 suffix"
+            "SQLi evasion intensity: "
+            "0=raw only; 1=keyword mixed-case; 2=space as /**/; "
+            "3=double URL-encode and %%00 suffix"
         ),
     )
     parser.add_argument(
@@ -268,6 +268,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="SQLi: max time/stacked payloads when --sqli-time-based is set (0=all)",
+    )
+    parser.add_argument(
+        "--osci-evasion-level",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=0,
+        help=(
+            "OSCi evasion intensity (cumulative per payload pass):"
+            "0=raw only; 1=space bypass; "
+            "2=+advanced bypass(quotes, semicolons); 3=+double URL-encode"
+        ),
+    )
+    parser.add_argument(
+        "--osci-time-based",
+        action="store_true",
+        help="OSCI: include time-based delay payloads (separate set; much slower)",
+    )
+    parser.add_argument(
+        "--osci-time-max",
+        type=int,
+        default=0,
+        help="OSCI: max time-based payloads when --osci-time-based is set (0=all)",
+    )
+    parser.add_argument(
+        "--target-os",
+        choices=["linux", "windows", "all"],
+        default="linux",
+        help="selects target os for OSCI module (linux runs Unix payloads internally)"
     )
     parser.add_argument(
         "--session-pool-size",
