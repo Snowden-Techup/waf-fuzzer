@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import urllib.parse
 import dataclasses
+import html
 from urllib.parse import urlparse, parse_qs
 import logging
 from typing import List, Any
@@ -165,7 +166,7 @@ class ReflectedXSSModule(BaseModule):
                             result.confidence = Confidence.MEDIUM
                         result.evidence = f"[500 Error Downgraded] {result.evidence}"
 
-                    # LOW 등급(찌꺼기)은 보고서 오염을 막기 위해 여기서 버림
+                    
                     if result.confidence == Confidence.LOW:
                         return FAIL
 
@@ -201,7 +202,7 @@ class ReflectedXSSModule(BaseModule):
                         f"Status: {status_code}"
                     ]
                     
-                    # 엔진에 (True, 증거, 덮어씌운 페이로드) 튜플 반환!
+                    # 엔진에 (True, 증거, 덮어씌운 페이로드) 튜플 반환
                     return (True, evidences, payload)
                 else:
                     return FAIL  # 중복 공격 무시
@@ -213,35 +214,76 @@ class ReflectedXSSModule(BaseModule):
             return (False, [], payload)  # 에러 발생 시에도 엔진 호환 규격으로 반환
 
     def _smart_recover_parameter(self, url: str, payload: Any) -> str:
-        """URL에서 페이로드가 주입된 파라미터 역추적"""
+        """URL 및 경로에서 페이로드가 주입된 파라미터 고도화 역추적"""
         try:
             parsed_url = urlparse(url)
             query_params = parse_qs(parsed_url.query, keep_blank_values=True)
 
-            if not query_params:
+            raw_payload = payload if isinstance(payload, str) else getattr(payload, 'value', str(payload))
+
+            # 정규화 엔진 (대소문자/공백은 보존, 인코딩만 해제)
+            def normalize(text: str) -> str:
+                if not text:
+                    return ""
+                t = str(text)
+                # 다중 URL 디코딩 (최대 3번)
+                prev = None
+                for _ in range(3):
+                    if t == prev:
+                        break
+                    prev = t
+                    try:
+                        t = urllib.parse.unquote(t)
+                    except Exception:
+                        break
+                # HTML 엔티티 디코딩
+                try:
+                    t = html.unescape(t)
+                except Exception:
+                    pass
+                return t
+
+            norm_payload = normalize(raw_payload)
+            if not norm_payload or len(norm_payload) < 4:
                 return "unknown"
 
-            raw_payload = payload if isinstance(payload, str) else getattr(payload, 'value', str(payload))
-            clean_payload = urllib.parse.unquote(str(raw_payload))
+            # 1단계: Query String 정확 일치
+            if query_params:
+                for key, values in query_params.items():
+                    for val in values:
+                        if norm_payload == normalize(val):
+                            logger.debug(f"[스마트복구] '{key}' 발견 (정규화 정확 일치)")
+                            return key
 
-            for key, values in query_params.items():
-                for val in values:
-                    clean_val = urllib.parse.unquote(str(val))
+            # 2단계: Query String 부분 일치 (페이로드가 값에 포함되는 경우만)
+            if query_params:
+                for key, values in query_params.items():
+                    for val in values:
+                        norm_val = normalize(val)
+                        if norm_payload in norm_val:
+                            logger.debug(f"[스마트복구] '{key}' 발견 (정규화 부분 일치)")
+                            return key
 
-                    if clean_payload == clean_val:
-                        logger.info(f"🎯 [스마트복구] 파라미터 '{key}' 발견 (정확 일치)")
-                        return key
+            # 3단계: REST API URL Path 검사
+            norm_path = normalize(parsed_url.path)
+            if norm_payload in norm_path:
+                path_segments = parsed_url.path.strip('/').split('/')
+                for idx, segment in enumerate(path_segments):
+                    if norm_payload in normalize(segment):
+                        logger.debug(f"[스마트복구] URL Path[{idx}] 내 주입 발견")
+                        return f"url_path[{idx}]"
+                return "url_path"
 
-                    if len(clean_payload) > 3 and clean_payload in clean_val:
-                        logger.info(f"🎯 [스마트복구] 파라미터 '{key}' 발견 (부분 일치)")
-                        return key
+            # 4단계: 폴백 (조용히 처리)
+            if query_params:
+                first_param = list(query_params.keys())[0]
+                logger.debug(f"파라미터 특정 불가, '{first_param}' 추정 사용")
+                return first_param
 
-            first_param = list(query_params.keys())[0]
-            logger.warning(f"⚠️ 파라미터 특정 불가, '{first_param}' 사용")
-            return first_param
+            return "unknown"
 
         except Exception as e:
-            logger.debug(f"스마트 복구 실패: {e}")
+            logger.debug(f"스마트 복구 로직 오류: {e}")
             return "unknown"
 
     def _extract_parameter(self, requester: Any, response: Any) -> str:
