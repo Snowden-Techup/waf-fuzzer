@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--type",
         type=str,
         default="all",
-        choices=["sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss", "all"],
+        choices=["sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss", "reflected_xss", "all"],
         help=(
             "Attack category (default: all). For bruteforce without --bf-target-url, "
             "surfaces come from the crawler; BruteforceModule.get_target_parameters filters targets."
@@ -340,6 +340,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[],
         help="크롤링 및 공격에서 제외할 URL 정규식 패턴 목록(예: '/setup\.php' '/admin/.*')"
+    )
+    parser.add_argument(
+        "--rxss-evasion-level",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=1,
+        help="reflected_XSS payload mutation level (0=off/raw, 1=basic WAF bypass, 2=advanced/encoding, 3=obfuscation)"
     )
     return parser
 
