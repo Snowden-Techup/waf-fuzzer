@@ -270,7 +270,6 @@ class FuzzerEngine:
             parameter=job.parameter,
             payload=job.payload,
             response=response,
-            evidences=evidences
         )
         self._findings.append(finding)
         async with self._stats_lock:
