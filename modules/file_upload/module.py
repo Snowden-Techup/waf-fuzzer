@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 from modules.base_module import BaseModule
 from modules.file_upload.analyzer import detect_file_upload
+from modules.file_upload.form_helpers import select_upload_target_parameters
 from modules.file_upload.payloads import FilePayload, get_file_upload_payloads
 from modules.file_upload.verifier import EXECUTION_MARKER, extract_dynamic_verify_urls
 
@@ -23,10 +24,7 @@ class FileUploadModule(BaseModule):
         if method not in {"POST", "PUT", "PATCH"}:
             return ()
         parameter_list = [str(param) for param in parameters]
-        # DVWA and most upload forms use "uploaded" as the file field.
-        if "uploaded" in parameter_list:
-            return ["uploaded"]
-        return parameter_list
+        return select_upload_target_parameters(surface, parameter_list)
 
     def analyze(self, response, payload, elapsed_time, original_res=None, requester=None) -> bool:
         is_vuln, _ = detect_file_upload(response=response, payload=payload)
