@@ -5,26 +5,33 @@ import re
 import dataclasses
 import random
 import asyncio
-import time
 from dataclasses import dataclass
 from typing import Iterator, Any, Tuple, List, Optional, Iterable
 
 from modules.base_module import BaseModule
-from modules.sqli.payloads import get_sqli_payloads
-from modules.sqli.analyzer import detect_sqli, verify_sqli_logic
+from modules.osci.payloads import get_osci_payloads
+from modules.osci.analyzer import detect_osci, verify_osci_logic
 from core.models import Payload
 
 @dataclass(frozen=True, slots=True)
-class SQLiInternalPayload(Payload):
+class OSCiInternalPayload(Payload):
+    target_os: str = "Unix"
+    action_level: str = "SHELL"
     _is_serial: bool = False
     _real_time_value: Optional[str] = None
 
-class SQLiModule(BaseModule):
+class OSCiModule(BaseModule):
     def __init__(self, **kwargs):
-        super().__init__("SQL Injection")
-        self.exploit_signatures = self._load_json("exploit_errors.json")
-        self.syntax_signatures = self._load_json("syntax_errors.json")
-        self.mismatch_signatures = self._load_json("mismatch_errors.json")
+        super().__init__("OS Command Injection")
+        
+        # CLI 입력 매핑
+        raw_os = kwargs.get('target_os', 'linux').lower()
+        if raw_os == 'windows':
+            self.target_os = "Windows"
+        elif raw_os == 'all':
+            self.target_os = "all"
+        else:
+            self.target_os = "Unix"
         
         self.evasion_level = kwargs.get('evasion_level', 0)
         self.include_time_based = kwargs.get('include_time_based', False)
@@ -43,21 +50,13 @@ class SQLiModule(BaseModule):
         self._time_attack_in_flight = 0
         self._time_phase_active = False
 
-    def _load_json(self, filename: str) -> list:
-        file_path = os.path.join("config", "payloads", "sqli", filename)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return []
-        return []
-
     def _is_time_payload(self, payload: Payload) -> bool:
         attack_type = str(getattr(payload, "attack_type", "")).lower()
-        return "time" in attack_type or "stacked" in attack_type
+        return "time-based" in attack_type or "time" in attack_type
 
     def get_target_parameters(self, surface: Any, all_params: Iterable[str]) -> Iterable[str]:
+        if self._fast_per_param == 0:
+            self.get_payload_count()
         params = list(all_params)
         url = getattr(surface, "url", "")
         method = getattr(surface, "method", "GET")
@@ -69,7 +68,8 @@ class SQLiModule(BaseModule):
         return params
 
     def get_payload_count(self) -> int:
-        all_raw = get_sqli_payloads()
+        all_raw = get_osci_payloads(self.target_os)
+        
         fast_c = sum(1 for p in all_raw if not self._is_time_payload(p))
         time_c = sum(1 for p in all_raw if self._is_time_payload(p))
         
@@ -86,40 +86,71 @@ class SQLiModule(BaseModule):
         if self._fast_per_param == 0: 
             self.get_payload_count()
 
-        all_raw = get_sqli_payloads()
-        fast_indices = [i for i, p in enumerate(all_raw) if not self._is_time_payload(p)]
-        time_indices = [i for i, p in enumerate(all_raw) if self._is_time_payload(p)]
+        filtered = get_osci_payloads(self.target_os)
+        
+        fast_payloads = [p for p in filtered if not self._is_time_payload(p)]
+        time_payloads = [p for p in filtered if self._is_time_payload(p)]
 
+        # 일반 페이로드 (병렬)
         for level in range(self.evasion_level + 1):
-            for idx in fast_indices:
-                p = all_raw[idx]
-                yield SQLiInternalPayload(
-                    value=self._apply_evasion_by_level(p.value, level),
-                    attack_type=p.attack_type, risk_level=p.risk_level, _is_serial=False
+            for p in fast_payloads:
+                yield OSCiInternalPayload(
+                    value=self._apply_evasion_by_level(p.value, level, p.target_os, p.action_level),
+                    attack_type=p.attack_type,
+                    risk_level=p.risk_level,
+                    target_os=p.target_os,
+                    action_level=p.action_level,
+                    _is_serial=False
                 )
 
-        if self.include_time_based and time_indices:
+        # 시간 기반 페이로드 (직렬)
+        if self.include_time_based and time_payloads:
             random.seed(self.random_seed)
-            limit = self.max_time_payloads if self.max_time_payloads > 0 else len(time_indices)
-            selected_indices = random.sample(time_indices, min(limit, len(time_indices)))
+            limit = self.max_time_payloads if self.max_time_payloads > 0 else len(time_payloads)
+            selected_indices = random.sample(range(len(time_payloads)), min(limit, len(time_payloads)))
+            
             for level in range(self.evasion_level + 1):
                 for idx in selected_indices:
-                    p = all_raw[idx]
-                    yield SQLiInternalPayload(
-                        value="1", attack_type=p.attack_type, risk_level=p.risk_level,
-                        _is_serial=True, _real_time_value=self._apply_evasion_by_level(p.value, level)
+                    p = time_payloads[idx]
+                    yield OSCiInternalPayload(
+                        value="1",
+                        attack_type=p.attack_type,
+                        risk_level=p.risk_level,
+                        target_os=p.target_os,
+                        action_level=p.action_level,
+                        _is_serial=True,
+                        _real_time_value=self._apply_evasion_by_level(p.value, level, p.target_os, p.action_level),
                     )
 
-    def _apply_evasion_by_level(self, value: str, level: int) -> str:
-        if level == 0: return value
-        if level == 1:
-            value = value.replace("SELECT", "sElEcT").replace("UNION", "uNiOn")\
-                         .replace("AND", "aNd").replace("OR", "oR")\
-                         .replace("CASE", "cAsE").replace("WHEN", "wHeN")
-        if level == 2:
-            value = value.replace(" ", "/**/")
-        if level == 3:
-            value = urllib.parse.quote(urllib.parse.quote(value)) + "%00"
+    def _apply_evasion_by_level(self, value: str, level: int, t_os: str, action_level: str) -> str:
+        if level == 0:
+            return value
+        
+        # Level 1: 공백 우회
+        if level >= 1:
+            if t_os == "Unix":
+                value = value.replace(" ", "${IFS}")
+            else:
+                # Windows CMD/PHP 환경에서는 쉼표(,) 우회 사용, PowerShell은 제외
+                if "PS" not in action_level:
+                    value = value.replace(" ", ",")
+        
+        # Level 2: 키워드 난독화
+        if level >= 2:
+            if t_os == "Unix":
+                value = value.replace("echo", "e'c'ho")
+                value = value.replace("cat", "c'a't")
+            else:
+                value = value.replace("echo", "ec^ho")
+                value = value.replace("set", "s^et")
+
+                if "PS" in action_level:
+                    value = value.replace("Write-Output", "W'rite-O'utput")
+        
+        # Level 3: URL 인코딩
+        if level >= 3:
+            value = urllib.parse.quote(value)
+        
         return value
 
     async def analyze(self, response: Any, payload: Any, elapsed_time: float, 
@@ -128,22 +159,24 @@ class SQLiModule(BaseModule):
 
         # [A] 일반 페이로드 분석 (병렬)
         if not is_serial:
-            # 시간 페이즈 종료까지 대기
             while self._time_phase_active:
                 await asyncio.sleep(2.0)
 
             try:
-                is_hit, evidences, has_syntax_error = detect_sqli(
-                    response=response, payload=payload, elapsed_time=elapsed_time,
-                    exploit_signatures=self.exploit_signatures,
-                    syntax_signatures=self.syntax_signatures,
-                    mismatch_signatures=self.mismatch_signatures,
+                is_hit, evidences = detect_osci(
+                    response=response,
+                    payload=payload,
+                    elapsed_time=elapsed_time,
                     original_res=original_res
                 )
-                final_hit, final_evidences = await verify_sqli_logic(
-                    response, payload, original_res, requester, is_hit, evidences, has_syntax_error, self.syntax_signatures
-                )
-                return final_hit, final_evidences, payload
+                
+                if is_hit:
+                    final_hit, final_evidences = await verify_osci_logic(
+                        response, payload, original_res, requester, is_hit, evidences
+                    )
+                    return final_hit, final_evidences, payload
+                
+                return is_hit, evidences, payload
             finally:
                 async with self._counter_lock:
                     self._global_fast_completed += 1
@@ -178,13 +211,13 @@ class SQLiModule(BaseModule):
                             if stuck_count >= 3:
                                 self._barrier_event.set()
                                 break
-                    
+                        
                 if not self._time_phase_active:
                     self._time_phase_active = True
 
                 # 2. 전역 직렬 실행 락
                 async with self._global_time_lock:
-                    real_val = getattr(payload, "_real_time_value", "1")
+                    real_val = getattr(payload, "_real_time_value", "test")
                     actual_payload = dataclasses.replace(payload, value=real_val)
                     
                     try:
@@ -195,26 +228,24 @@ class SQLiModule(BaseModule):
                         # 서버 회복 대기
                         await asyncio.sleep(4.5)
 
-                        is_hit, evidences, has_syntax_error = detect_sqli(
-                            response=real_res, payload=actual_payload, elapsed_time=real_elapsed,
-                            exploit_signatures=self.exploit_signatures,
-                            syntax_signatures=self.syntax_signatures,
-                            mismatch_signatures=self.mismatch_signatures,
+                        is_hit, evidences = detect_osci(
+                            response=real_res,
+                            payload=actual_payload,
+                            elapsed_time=real_elapsed,
                             original_res=original_res
                         )
 
-                        if is_hit and not any(tag in str(evidences) for tag in ["[Time]", "[Error]", "[Reflection]"]):
-                            is_hit, evidences = await verify_sqli_logic(
-                                real_res, actual_payload, original_res, requester, is_hit, evidences, has_syntax_error, self.syntax_signatures
+                        if is_hit and "[Time]" not in str(evidences):
+                            is_hit, evidences = await verify_osci_logic(
+                                real_res, actual_payload, original_res, requester, is_hit, evidences
                             )
                         return is_hit, evidences, actual_payload
 
                     except asyncio.TimeoutError:
-                        is_hit, evidences, _ = detect_sqli(
-                            response=None, payload=actual_payload, elapsed_time=15.0,
-                            exploit_signatures=self.exploit_signatures,
-                            syntax_signatures=self.syntax_signatures,
-                            mismatch_signatures=self.mismatch_signatures,
+                        is_hit, evidences = detect_osci(
+                            response=None,
+                            payload=actual_payload,
+                            elapsed_time=15.0,
                             original_res=original_res
                         )
                         return True, evidences, actual_payload
@@ -223,6 +254,7 @@ class SQLiModule(BaseModule):
                     self._time_attack_in_flight -= 1
                     if self._time_attack_in_flight == 0:
                         if self._time_phase_active:
+                            
                             self._barrier_event.clear()
                             self._time_phase_active = False
 

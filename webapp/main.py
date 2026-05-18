@@ -25,7 +25,7 @@ from reporter.generator import _finding_sort_key
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-SCAN_TYPES = ["all", "sqli", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"]
+SCAN_TYPES = ["all", "sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"]
 
 # Web UI: true-random bruteforce는 total_requests 대비 진행률이 오래 안 바뀌는 경우가 있어
 # 이 모드에서만 N건 단위 보조 로그를 남긴다. (그 외는 진행률% 변경 시만 로그)
@@ -53,6 +53,13 @@ class EngineOptions(BaseModel):
 class SQLiOptions(BaseModel):
     include_time_based: bool = False
     max_time_payloads: int = Field(default=0, ge=0)
+
+
+class OSCiOptions(BaseModel):
+    evasion_level: int = Field(default=1, ge=0, le=3)
+    include_time_based: bool = False
+    max_time_payloads: int = Field(default=0, ge=0)
+    target_os: Literal["linux", "windows", "all"] = "linux"
 
 
 class BruteforceOptions(BaseModel):
@@ -90,12 +97,13 @@ class StoredXSSOptions(BaseModel):
 class ScanRequest(BaseModel):
     target_url: str = Field(..., min_length=1, max_length=2048, alias="url")
     scan_type: Literal[
-        "all", "sqli", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"
+        "all", "sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"
     ] = "all"
     level: int = Field(default=1, ge=0, le=3)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     engine: EngineOptions = Field(default_factory=EngineOptions)
     sqli: SQLiOptions = Field(default_factory=SQLiOptions)
+    osci: OSCiOptions = Field(default_factory=OSCiOptions)
     bruteforce: BruteforceOptions = Field(default_factory=BruteforceOptions)
     ssrf: SSRFOptions = Field(default_factory=SSRFOptions)
     stored_xss: StoredXSSOptions = Field(default_factory=StoredXSSOptions)
@@ -135,6 +143,7 @@ async def get_schema() -> dict:
             "bf_method": "GET",
             "sxss_scan_mode": "full",
             "sxss_max_risk_level": "Critical",
+            "osci_evasion_level": 1,
         },
     }
 
@@ -194,6 +203,7 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
 
     level = req.level
     sqli_evasion_level = level
+    osci_evasion_level = req.osci.evasion_level
     lfi_evasion_level = level
     ssrf_evasion_level = min(level, 2)
     sxss_evasion_level = level
@@ -234,10 +244,14 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
         bf_username_param=req.bruteforce.bf_username_param,
         bf_username=req.bruteforce.bf_username,
         bf_extra_params=req.bruteforce.bf_extra_params,
-        # SQLi / LFI / SSRF (names aligned with cli.parser / fuzzer.setup)
+        # SQLi / OSCi / LFI / SSRF (names aligned with cli.parser / fuzzer.setup)
         sqli_evasion_level=sqli_evasion_level,
         sqli_time_based=req.sqli.include_time_based,
         sqli_time_max=req.sqli.max_time_payloads,
+        osci_evasion_level=osci_evasion_level,
+        osci_time_based=req.osci.include_time_based,
+        osci_time_max=req.osci.max_time_payloads,
+        target_os=req.osci.target_os,
         lfi_evasion_level=lfi_evasion_level,
         ssrf_evasion_level=ssrf_evasion_level,
         ssrf_oob=req.ssrf.ssrf_include_oob,
@@ -336,17 +350,26 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
         )
 
         while not scan_task.done():
-            completed = min(engine.stats.completed, total_requests)
-            progress_pct = min(99.9, round(completed / total_requests * 100, 1))
+            planned_total = total_requests
+            queued_total = engine.stats.queued
+            effective_total = max(planned_total, queued_total, 1)
+            completed = engine.stats.completed
+            progress_pct = min(
+                100.0,
+                round(completed / effective_total * 100, 1),
+            )
+            if not scan_task.done() and progress_pct >= 99.9:
+                progress_pct = 99.9
             scan["progress_percent"] = progress_pct
             scan["progress"] = int(progress_pct)
             scan["summary"] = {
-                "queued": engine.stats.queued,
-                "completed": engine.stats.completed,
+                "queued": queued_total,
+                "completed": completed,
                 "failures": engine.stats.failures,
                 "findings": engine.stats.findings,
                 "elapsed_time": round(time.monotonic() - started_at, 2),
-                "total_requests": total_requests,
+                "total_requests": effective_total,
+                "planned_requests": planned_total,
             }
             scan["updated_at"] = time.time()
             if progress_pct != last_logged_progress:
@@ -380,6 +403,7 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
             _scan_log(scan, f"리포트 JSON 로드 실패: {exc}")
 
         findings = _serialize_findings(engine.findings)
+        final_total = max(total_requests, stats.queued, stats.completed, 1)
         scan["status"] = "completed"
         scan["progress"] = 100
         scan["progress_percent"] = 100.0
@@ -390,7 +414,8 @@ async def _run_real_scan(scan_id: str, req: ScanRequest) -> None:
             "failures": stats.failures,
             "findings": stats.findings,
             "elapsed_time": round(time.monotonic() - started_at, 2),
-            "total_requests": total_requests,
+            "total_requests": final_total,
+            "planned_requests": total_requests,
         }
         scan["result"] = {
             "summary": {

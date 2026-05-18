@@ -10,16 +10,25 @@ async def progress_printer(
     total_requests: int,
     scan_task: asyncio.Task,
 ) -> None:
-    total = max(total_requests, 1)
     while not scan_task.done():
-        completed = min(engine.stats.completed, total)
-        percent = (completed / total) * 100
-        print(f"\rProgress: {percent:6.2f}% ({completed}/{total})", end="", flush=True)
+        effective_total = max(total_requests, engine.stats.queued, engine.stats.completed, 1)
+        completed = engine.stats.completed
+        percent = min(100.0, (completed / effective_total) * 100)
+        print(
+            f"\rProgress: {percent:6.2f}% ({completed}/{effective_total})",
+            end="",
+            flush=True,
+        )
         await asyncio.sleep(0.2)
 
-    completed = min(engine.stats.completed, total)
-    percent = (completed / total) * 100
-    print(f"\rProgress: {percent:6.2f}% ({completed}/{total})", end="", flush=True)
+    effective_total = max(total_requests, engine.stats.queued, engine.stats.completed, 1)
+    completed = engine.stats.completed
+    percent = min(100.0, (completed / effective_total) * 100)
+    print(
+        f"\rProgress: {percent:6.2f}% ({completed}/{effective_total})",
+        end="",
+        flush=True,
+    )
     print()
 
 
@@ -31,12 +40,16 @@ def print_scan_configuration(
     module_count: int,
     payload_count: int,
     level: int | None,
+    target_os: str,
     sqli_evasion_level: int,
+    osci_evasion_level: int,
     lfi_evasion_level: int,
     ssrf_evasion_level: int,
     ssrf_oob: bool,
     sqli_time_based: bool,
     sqli_time_max: int,
+    osci_time_based: bool,
+    osci_time_max: int,
     total_requests: int,
     rps: int,
     delay: float,
@@ -45,6 +58,7 @@ def print_scan_configuration(
 ) -> None:
     print("=" * 60)
     print(f"Target URL:     {base_url}")
+    print(f"[*] Target OS: {target_os}")
     print(f"Surface count:  {surface_count}")
     print(f"Attack type:    {attack_type}")
     print(f"Module count:   {module_count}")
@@ -52,19 +66,26 @@ def print_scan_configuration(
     if level is not None:
         print(
             f"Unified --level: {level} "
-            "(SQLi/LFI/SSRF; SSRF effective level capped at 2)"
+            "(SQLi/OSCi/LFI/SSRF; SSRF effective level capped at 2)"
         )
     print(f"SQLi evasion:   level {sqli_evasion_level}")
+    print(f"OSCi evasion:   level {osci_evasion_level}")
     print(f"LFI evasion:    level {lfi_evasion_level}")
     ssrf_line = f"SSRF evasion:   level {ssrf_evasion_level}"
     if ssrf_oob:
         ssrf_line += " (+ OOB/template payloads)"
     print(ssrf_line)
-    time_max_note = "all" if sqli_time_max == 0 else str(sqli_time_max)
+    sqli_time_max_note = "all" if sqli_time_max == 0 else str(sqli_time_max)
     print(
         "SQLi timing:    "
         + ("included" if sqli_time_based else "excluded (fast mode)")
-        + (f", max={time_max_note}" if sqli_time_based else "")
+        + (f", max={sqli_time_max_note}" if sqli_time_based else "")
+    )
+    osci_time_max_note = "all" if osci_time_max == 0 else str(osci_time_max)
+    print(
+        "OSCI timing:    "
+        + ("included" if osci_time_based else "excluded (fast mode)")
+        + (f", max={osci_time_max_note}" if osci_time_based else "")
     )
     print(f"Total requests: {total_requests}")
     print(f"Throttle (rps): {rps} (delay {delay:.3f}s)")
