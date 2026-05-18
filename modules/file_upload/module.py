@@ -5,8 +5,10 @@ from urllib.parse import urlsplit
 from modules.base_module import BaseModule
 from modules.file_upload.analyzer import detect_file_upload
 from modules.file_upload.form_helpers import select_upload_target_parameters
+from modules.file_upload.markers import VERIFY_TEMPLATE
 from modules.file_upload.payloads import FilePayload, get_file_upload_payloads
-from modules.file_upload.verifier import EXECUTION_MARKER, extract_dynamic_verify_urls
+from modules.file_upload.path_discovery import discover_verify_urls
+from modules.file_upload.verifier import build_verify_url_list, verify_upload_response
 
 
 class FileUploadModule(BaseModule):
@@ -41,33 +43,46 @@ class FileUploadModule(BaseModule):
         baseline_response=None,
     ) -> bool:
         """
-        Stage 2 verification: request uploaded file and confirm marker execution.
+        Stage-2 active verification:
+        - RCE: marker present, interpreter tags stripped (PHP/JSP/…)
+        - Static: malicious content served verbatim (Stored XSS on static hosts)
+        - Template: marker rendered on app routes (Node EJS overwrite)
         """
         if not isinstance(payload, FilePayload):
             return False
 
         split = urlsplit(surface.url)
         base = f"{split.scheme}://{split.netloc}"
-        seen: set[str] = set()
-        verify_urls: list[str] = []
+        upload_text = getattr(response, "text", "") or ""
+        headers = getattr(surface, "headers", None) or {}
+        cookies = getattr(surface, "cookies", None) or {}
+        source_url = getattr(surface, "source_url", None)
 
-        dynamic_urls = extract_dynamic_verify_urls(
+        verify_urls = await discover_verify_urls(
+            session,
             base_url=base,
-            response_text=getattr(response, "text", "") or "",
             filename=payload.filename,
+            upload_response_text=upload_text,
+            surface_url=str(surface.url),
+            source_url=str(source_url) if source_url else None,
+            payload=payload,
+            headers=headers,
+            cookies=cookies,
         )
-        for dynamic_url in dynamic_urls:
-            if dynamic_url in seen:
-                continue
-            seen.add(dynamic_url)
-            verify_urls.append(dynamic_url)
+
+        if not verify_urls and (payload.verify_mode or "").lower() == VERIFY_TEMPLATE:
+            verify_urls = build_verify_url_list(
+                base_url=base,
+                upload_response_text="",
+                payload=payload,
+                surface_url=str(surface.url),
+                include_fallback=False,
+            )
 
         if not verify_urls:
             return False
 
         request_kwargs = {}
-        headers = getattr(surface, "headers", None) or {}
-        cookies = getattr(surface, "cookies", None) or {}
         if headers:
             request_kwargs["headers"] = headers
         if cookies:
@@ -80,11 +95,8 @@ class FileUploadModule(BaseModule):
             except Exception:
                 continue
 
-            if EXECUTION_MARKER not in body:
-                continue
-            if "<?php" in body.lower() or "&lt;?php" in body.lower():
-                continue
-
-            return True
+            result = verify_upload_response(body, payload)
+            if result.verified:
+                return True
 
         return False
