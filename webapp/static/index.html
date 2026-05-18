@@ -566,6 +566,7 @@
               <select id="scan_type" class="form-select">
                 <option value="all">all (bruteforce 제외)</option>
                 <option value="sqli">sqli</option>
+                <option value="osci">osci</option>
                 <option value="bruteforce">bruteforce</option>
                 <option value="lfi">lfi</option>
                 <option value="file_upload">file_upload</option>
@@ -577,7 +578,7 @@
               <label class="form-label" for="level">우회 단계</label>
               <input id="level" type="number" class="form-control" min="0" max="3" value="1">
               <div class="field-help">
-                SQLi·LFI·SSRF·Stored XSS 우회 단계. bruteforce에는 적용되지 않습니다.
+                SQLi·LFI·SSRF·Stored XSS 우회 단계. OSCi는 모듈별 상세에서 설정합니다. bruteforce에는 적용되지 않습니다.
               </div>
             </div>
           </div>
@@ -686,6 +687,36 @@
                 <div class="form-check mb-2">
                   <input id="include_time_based" type="checkbox" class="form-check-input">
                   <label for="include_time_based" class="form-check-label">시간기반 포함</label>
+                </div>
+              </div>
+            </div>
+            </div>
+
+            <div id="detailPanelOsci" class="module-detail-panel" hidden>
+            <div class="row g-2 mb-3">
+              <div class="col-12 hint">OSCi (OS Command Injection)</div>
+              <div class="col-md-3">
+                <label class="form-label" for="osci_evasion_level">우회 단계</label>
+                <input id="osci_evasion_level" type="number" class="form-control" min="0" max="3" value="1">
+                <div class="field-help">--osci-evasion-level (0=원본, 3=URL 인코딩)</div>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="osci_target_os">대상 OS</label>
+                <select id="osci_target_os" class="form-select">
+                  <option value="linux" selected>linux (Unix 페이로드)</option>
+                  <option value="windows">windows</option>
+                  <option value="all">all</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="osci_max_time_payloads">시간기반 상한</label>
+                <input id="osci_max_time_payloads" type="number" class="form-control" min="0" value="0">
+                <div class="field-help">0이면 전체 사용 (시간기반 포함 시)</div>
+              </div>
+              <div class="col-md-3 d-flex align-items-end">
+                <div class="form-check mb-2">
+                  <input id="osci_include_time_based" type="checkbox" class="form-check-input">
+                  <label for="osci_include_time_based" class="form-check-label">시간기반 포함</label>
                 </div>
               </div>
             </div>
@@ -919,6 +950,7 @@
     const scanTypeSelect = document.getElementById("scan_type");
     const moduleDetailSection = document.getElementById("moduleDetailSection");
     const detailPanelSqli = document.getElementById("detailPanelSqli");
+    const detailPanelOsci = document.getElementById("detailPanelOsci");
     const detailPanelBf = document.getElementById("detailPanelBf");
     const detailPanelSsrf = document.getElementById("detailPanelSsrf");
     const detailPanelSxss = document.getElementById("detailPanelSxss");
@@ -1015,12 +1047,14 @@
     function syncModuleDetailPanels() {
       const t = scanTypeSelect.value;
       const showSqli = t === "all" || t === "sqli";
+      const showOsci = t === "all" || t === "osci";
       const showBf = t === "bruteforce";
       const showSsrf = t === "all" || t === "ssrf";
       const showSxss = t === "all" || t === "stored_xss";
-      const any = showSqli || showBf || showSsrf || showSxss;
+      const any = showSqli || showOsci || showBf || showSsrf || showSxss;
 
       detailPanelSqli.hidden = !showSqli;
+      detailPanelOsci.hidden = !showOsci;
       detailPanelBf.hidden = !showBf;
       detailPanelSsrf.hidden = !showSsrf;
       detailPanelSxss.hidden = !showSxss;
@@ -1028,6 +1062,7 @@
 
       const labels = [];
       if (showSqli) labels.push("SQLi");
+      if (showOsci) labels.push("OSCi");
       if (showBf) labels.push("Bruteforce");
       if (showSsrf) labels.push("SSRF");
       if (showSxss) labels.push("Stored XSS");
@@ -1036,6 +1071,11 @@
 
     scanTypeSelect.addEventListener("change", syncModuleDetailPanels);
     syncModuleDetailPanels();
+
+    document.getElementById("level").addEventListener("input", () => {
+      const osciLevel = document.getElementById("osci_evasion_level");
+      if (osciLevel) osciLevel.value = document.getElementById("level").value;
+    });
 
     function toInt(id, fallback = 0) {
       const n = parseInt(document.getElementById(id).value, 10);
@@ -1170,6 +1210,12 @@
         sqli: {
           include_time_based: document.getElementById("include_time_based").checked,
           max_time_payloads: toInt("max_time_payloads", 0)
+        },
+        osci: {
+          evasion_level: toInt("osci_evasion_level", 1),
+          include_time_based: document.getElementById("osci_include_time_based").checked,
+          max_time_payloads: toInt("osci_max_time_payloads", 0),
+          target_os: document.getElementById("osci_target_os").value
         },
         bruteforce: {
           bf_wordlist: document.getElementById("bf_wordlist").value,
