@@ -1,21 +1,22 @@
 {
+  "markers": {
+    "rce_php": "WAF_UPLOAD_VULN_DETECTED",
+    "rce_node": "WAF_NODE_RCE_DETECTED",
+    "xss": "WAF_XSS_UPLOAD_DETECTED"
+  },
   "extensions": [
-    "php",
-    "php3",
-    "php4",
-    "php5",
-    "phtml",
-    "phar",
-    "inc",
-    "PhP",
-    "pHP",
-    "Php",
-    "php ",
-    "php.",
-    "php/."
+    "php", "php3", "php4", "php5", "phtml", "phar", "inc",
+    "js", "mjs", "cjs", "ts",
+    "html", "htm", "svg", "xml",
+    "ejs", "pug", "hbs",
+    "json", "yaml", "yml"
   ],
   "content_types": [
     "application/x-php",
+    "application/javascript",
+    "application/json",
+    "text/html",
+    "image/svg+xml",
     "image/jpeg",
     "image/gif",
     "text/plain"
@@ -26,25 +27,65 @@
     "receipt_2026",
     "document_vfinal",
     "upload",
-    "img"
+    "img",
+    "payload"
   ],
   "magic_byte_extensions": [
     "php5",
     "phtml",
-    "PhP"
+    "js",
+    "svg"
   ],
   "classic_payloads": [
     {
       "extension": "php%00.jpg",
       "prefix": "upload",
       "content_type": "image/jpeg",
-      "attack_type": "Null_Byte_Injection"
+      "attack_type": "Null_Byte_Injection_PHP",
+      "verify_mode": "rce"
     },
     {
       "extension": "php.jpg",
       "prefix": "document",
       "content_type": "image/jpeg",
-      "attack_type": "Double_Extension"
+      "attack_type": "Double_Extension_PHP",
+      "verify_mode": "rce"
+    },
+    {
+      "extension": "svg",
+      "prefix": "avatar",
+      "content_type": "image/svg+xml",
+      "attack_type": "Stored_XSS_SVG",
+      "verify_mode": "static",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert('WAF_XSS_UPLOAD_DETECTED')</script></svg>",
+      "content_probe": "<script>alert('WAF_XSS_UPLOAD_DETECTED')</script>"
+    },
+    {
+      "extension": "html",
+      "prefix": "document",
+      "content_type": "text/html",
+      "attack_type": "Stored_XSS_HTML",
+      "verify_mode": "static",
+      "content": "<html><body><script>alert('WAF_XSS_UPLOAD_DETECTED')</script></body></html>",
+      "content_probe": "<script>alert('WAF_XSS_UPLOAD_DETECTED')</script>"
+    },
+    {
+      "filename": "../../../../../tmp/pwned.js",
+      "extension": "js",
+      "content_type": "application/javascript",
+      "attack_type": "Path_Traversal_File_Write",
+      "verify_mode": "static",
+      "content": "// static probe\nconsole.log('WAF_XSS_UPLOAD_DETECTED');",
+      "content_probe": "console.log('WAF_XSS_UPLOAD_DETECTED')"
+    },
+    {
+      "filename": "../../views/index.ejs",
+      "extension": "ejs",
+      "content_type": "text/plain",
+      "attack_type": "Template_Overwrite_EJS",
+      "verify_mode": "template",
+      "content": "<%= 'WAF_NODE_RCE_DETECTED' %>",
+      "verify_paths": ["/"]
     }
   ]
 }
