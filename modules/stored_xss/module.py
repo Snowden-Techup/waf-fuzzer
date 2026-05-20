@@ -11,7 +11,14 @@ import asyncio
 from modules.base_module import BaseModule
 from core.models import Payload
 from modules.stored_xss.payloads import build_stored_xss_payloads, PayloadCategory, reload_payloads
-from modules.stored_xss.analyzer import analyze_stored_xss, _extract_injected_marker, _analyze_context_robust
+from modules.stored_xss.analyzer import (
+    analyze_stored_xss,
+    _analyze_context_robust,
+    _extract_injected_marker,
+    is_acceptable_verify_response,
+    is_success_status,
+)
+from modules.stored_xss.verify_urls import collect_verify_candidate_urls
 from fuzzer.request_builder import build_and_send_request
 
 
@@ -72,6 +79,7 @@ class StoredXSSModule(BaseModule):
             self._last_analysis_result = None
             self._logged_progress_blocks.clear()
             self._html_cache.clear()
+            self._target_locks.clear()
 
     def set_baseline(self, response: Any) -> None:
         if response and hasattr(response, 'text') and response.text:
@@ -183,9 +191,8 @@ class StoredXSSModule(BaseModule):
     async def verify(self, session: aiohttp.ClientSession, surface: Any, parameter: str, payload: Payload,
                      response: Any, baseline_response: Any) -> bool:
         """
-        [보완된 verify 로직]
-        1. 새 글 상세 페이지 직접 파싱 접근 로직 추가
-        2. HTML 캐시 제거로 항상 최신 응답 확인
+        2차 주입 마커를 넣은 뒤, 수집한 후보 URL들을 GET하여 저장·실행 여부를 확인한다.
+        후보 URL은 verify_urls.collect_verify_candidate_urls (앱별 하드코딩 없음)로 수집한다.
         """
         try:
             payload_value = payload.value or ""
@@ -211,51 +218,12 @@ class StoredXSSModule(BaseModule):
                 session, safe_surface, parameter, MockPayload(verify_payload_value)
             )
 
-            # =========================================================================
-            #  동적 URL 수집 로직 (상세 페이지 파싱 추가)
-            # =========================================================================
-            candidate_urls = []
-
-            # (1) 자동 리다이렉트된 최종 URL 수집
-            final_url = str(getattr(injection_res, 'url', ''))
-            if final_url and final_url not in candidate_urls:
-                candidate_urls.append(final_url)
-
-            # (2) 응답 HTML 내부에서 "가장 최근에 작성된 것으로 보이는 게시물 링크" 추출 시도
-            injection_body = getattr(injection_res, 'text', '')
-            if injection_body and '/board' in final_url:
-                try:
-                    from bs4 import BeautifulSoup
-                    try:
-                        soup = BeautifulSoup(injection_body, 'lxml')
-                    except Exception:
-                        soup = BeautifulSoup(injection_body, 'html.parser')
-
-                    links = soup.find_all('a', href=lambda href: href and '/board/view?id=' in href)
-
-                    if links:
-                        from urllib.parse import urljoin
-                        for link in links[:5]:
-                            full_url = urljoin(base_url, link['href'])
-                            if full_url not in candidate_urls:
-                                candidate_urls.append(full_url)
-                except Exception:
-                    pass
-
-            # (3) 폼을 제출했던 원래 URL 추가
-            surface_url = getattr(surface, 'url', base_url)
-            if surface_url not in candidate_urls:
-                candidate_urls.append(surface_url)
-
-            # (4) Referer 헤더 출처 추가
-            req_headers = getattr(surface, 'headers', {}) or {}
-            referer = req_headers.get('Referer') or req_headers.get('referer')
-            if referer and referer not in candidate_urls:
-                candidate_urls.append(referer)
-
-            if base_url not in candidate_urls:
-                candidate_urls.append(base_url)
-            # =========================================================================
+            req_headers = getattr(surface, "headers", {}) or {}
+            candidate_urls = collect_verify_candidate_urls(
+                base_url=base_url,
+                surface=safe_surface,
+                injection_res=injection_res,
+            )
 
             await asyncio.sleep(2.5)
 
@@ -268,14 +236,23 @@ class StoredXSSModule(BaseModule):
                     self._target_locks[check_url] = asyncio.Lock()
 
                 verify_body = ""
+                verify_status = 0
                 async with self._target_locks[check_url]:
                     try:
                         req_cookies = getattr(surface, 'cookies', None)
                         async with session.get(check_url, headers=req_headers, cookies=req_cookies,
                                                timeout=15) as verify_res:
+                            verify_status = verify_res.status
+                            if not is_success_status(verify_status):
+                                continue
                             verify_body = await verify_res.text()
                     except Exception:
                         continue
+
+                if not is_acceptable_verify_response(
+                    verify_status, verify_body, marker=verify_marker
+                ):
+                    continue
 
                 if verify_marker in verify_body:
                     marker_indices = [m.start() for m in re.finditer(re.escape(verify_marker), verify_body)]
