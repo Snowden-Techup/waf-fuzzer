@@ -5,7 +5,6 @@ import re
 import dataclasses
 import random
 import asyncio
-import time
 from dataclasses import dataclass
 from typing import Iterator, Any, Tuple, List, Optional, Iterable
 
@@ -16,6 +15,7 @@ from core.models import Payload
 
 @dataclass(frozen=True, slots=True)
 class SQLiInternalPayload(Payload):
+    target_dbms: str = "All"
     _is_serial: bool = False
     _real_time_value: Optional[str] = None
 
@@ -25,6 +25,16 @@ class SQLiModule(BaseModule):
         self.exploit_signatures = self._load_json("exploit_errors.json")
         self.syntax_signatures = self._load_json("syntax_errors.json")
         self.mismatch_signatures = self._load_json("mismatch_errors.json")
+        
+        # CLI에서 입력받은 DBMS 텍스트 정규화 매핑 (기본값: all)
+        raw_dbms = kwargs.get('target_dbms', 'all').lower()
+        if raw_dbms == 'mysql': self.target_dbms = "MySQL"
+        elif raw_dbms in ('mssql', 'microsoft sql server'): self.target_dbms = "Microsoft SQL Server"
+        elif raw_dbms == 'oracle': self.target_dbms = "Oracle"
+        elif raw_dbms in ('postgres', 'postgresql'): self.target_dbms = "PostgreSQL"
+        elif raw_dbms == 'sqlite': self.target_dbms = "SQLite"
+        elif raw_dbms == 'access': self.target_dbms = "MS Access"
+        else: self.target_dbms = "all"
         
         self.evasion_level = kwargs.get('evasion_level', 0)
         self.include_time_based = kwargs.get('include_time_based', False)
@@ -58,6 +68,8 @@ class SQLiModule(BaseModule):
         return "time" in attack_type or "stacked" in attack_type
 
     def get_target_parameters(self, surface: Any, all_params: Iterable[str]) -> Iterable[str]:
+        if self._fast_per_param == 0:
+            self.get_payload_count()
         params = list(all_params)
         url = getattr(surface, "url", "")
         method = getattr(surface, "method", "GET")
@@ -69,9 +81,10 @@ class SQLiModule(BaseModule):
         return params
 
     def get_payload_count(self) -> int:
-        all_raw = get_sqli_payloads()
-        fast_c = sum(1 for p in all_raw if not self._is_time_payload(p))
-        time_c = sum(1 for p in all_raw if self._is_time_payload(p))
+        filtered = get_sqli_payloads(self.target_dbms)
+        
+        fast_c = sum(1 for p in filtered if not self._is_time_payload(p))
+        time_c = sum(1 for p in filtered if self._is_time_payload(p))
         
         selected_time_count = 0
         if self.include_time_based:
@@ -86,39 +99,49 @@ class SQLiModule(BaseModule):
         if self._fast_per_param == 0: 
             self.get_payload_count()
 
-        all_raw = get_sqli_payloads()
-        fast_indices = [i for i, p in enumerate(all_raw) if not self._is_time_payload(p)]
-        time_indices = [i for i, p in enumerate(all_raw) if self._is_time_payload(p)]
+        # payload.py 에서 필터링된 페이로드 리스트 로드
+        filtered = get_sqli_payloads(self.target_dbms)
+        
+        fast_payloads = [p for p in filtered if not self._is_time_payload(p)]
+        time_payloads = [p for p in filtered if self._is_time_payload(p)]
 
+        # 1. 일반 페이로드 생성
         for level in range(self.evasion_level + 1):
-            for idx in fast_indices:
-                p = all_raw[idx]
+            for p in fast_payloads:
                 yield SQLiInternalPayload(
                     value=self._apply_evasion_by_level(p.value, level),
-                    attack_type=p.attack_type, risk_level=p.risk_level, _is_serial=False
+                    attack_type=p.attack_type,
+                    risk_level=p.risk_level,
+                    target_dbms=getattr(p, 'target_dbms', 'Generic'),
+                    _is_serial=False
                 )
 
-        if self.include_time_based and time_indices:
+        # 2. 시간 기반 페이로드 생성
+        if self.include_time_based and time_payloads:
             random.seed(self.random_seed)
-            limit = self.max_time_payloads if self.max_time_payloads > 0 else len(time_indices)
-            selected_indices = random.sample(time_indices, min(limit, len(time_indices)))
+            limit = self.max_time_payloads if self.max_time_payloads > 0 else len(time_payloads)
+            selected = random.sample(time_payloads, min(limit, len(time_payloads)))
+            
             for level in range(self.evasion_level + 1):
-                for idx in selected_indices:
-                    p = all_raw[idx]
+                for p in selected:
                     yield SQLiInternalPayload(
-                        value="1", attack_type=p.attack_type, risk_level=p.risk_level,
-                        _is_serial=True, _real_time_value=self._apply_evasion_by_level(p.value, level)
+                        value="1",
+                        attack_type=p.attack_type,
+                        risk_level=p.risk_level,
+                        target_dbms=getattr(p, 'target_dbms', 'Generic'),
+                        _is_serial=True,
+                        _real_time_value=self._apply_evasion_by_level(p.value, level)
                     )
 
     def _apply_evasion_by_level(self, value: str, level: int) -> str:
         if level == 0: return value
-        if level == 1:
+        if level >= 1:
             value = value.replace("SELECT", "sElEcT").replace("UNION", "uNiOn")\
                          .replace("AND", "aNd").replace("OR", "oR")\
                          .replace("CASE", "cAsE").replace("WHEN", "wHeN")
-        if level == 2:
+        if level >= 2:
             value = value.replace(" ", "/**/")
-        if level == 3:
+        if level >= 3:
             value = urllib.parse.quote(urllib.parse.quote(value)) + "%00"
         return value
 
@@ -176,10 +199,13 @@ class SQLiModule(BaseModule):
                             
                             # 30초(10초 * 3) 동안 일반 페이로드 완료 없으면 강제 돌파
                             if stuck_count >= 3:
+                                if not self._time_phase_active:
+                                    print(f"\n[!] Deadlock Breaker: Network drop-offs detected. Forcing time-based phase (SQLi).")
                                 self._barrier_event.set()
                                 break
                     
                 if not self._time_phase_active:
+                    print(f"\n[★TRANSITION] Barrier cleared. Starting REAL time-based SQLi attacks!")
                     self._time_phase_active = True
 
                 # 2. 전역 직렬 실행 락
@@ -223,6 +249,7 @@ class SQLiModule(BaseModule):
                     self._time_attack_in_flight -= 1
                     if self._time_attack_in_flight == 0:
                         if self._time_phase_active:
+                            print(f"[★TRANSITION] Going back to normal SQLi payloads")
                             self._barrier_event.clear()
                             self._time_phase_active = False
 

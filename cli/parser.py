@@ -270,6 +270,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLi: max time/stacked payloads when --sqli-time-based is set (0=all)",
     )
     parser.add_argument(
+        "--target-dbms",
+        choices=["mysql", "mssql", "oracle", "postgres", "sqlite", "access", "all"],
+        default="all",
+        help="selects target dbms for SQLi module (default: all)"
+    )
+    parser.add_argument(
         "--osci-evasion-level",
         type=int,
         choices=[0, 1, 2, 3],
