@@ -53,6 +53,7 @@ class EngineOptions(BaseModel):
 class SQLiOptions(BaseModel):
     include_time_based: bool = False
     max_time_payloads: int = Field(default=0, ge=0)
+    target_dbms: Literal["mysql", "mssql", "oracle", "postgres", "sqlite", "access", "all"] = "all"
 
 
 class OSCiOptions(BaseModel):
@@ -248,6 +249,7 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
         sqli_evasion_level=sqli_evasion_level,
         sqli_time_based=req.sqli.include_time_based,
         sqli_time_max=req.sqli.max_time_payloads,
+        target_dbms=req.sqli.target_dbms,
         osci_evasion_level=osci_evasion_level,
         osci_time_based=req.osci.include_time_based,
         osci_time_max=req.osci.max_time_payloads,
