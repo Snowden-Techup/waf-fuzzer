@@ -1,7 +1,14 @@
 import os
 import random
-import dataclasses
-from core.models import Payload
+from dataclasses import dataclass
+from typing import List
+
+@dataclass(frozen=True, slots=True)
+class Payload:
+    value: str
+    attack_type: str
+    risk_level: str
+    target_dbms: str = "Generic"
 
 def _resolve_payload_file() -> str | None:
     candidates = [
@@ -13,6 +20,7 @@ def _resolve_payload_file() -> str | None:
     return None
 
 def get_dbms_specific_marker(text: str, dbms: str) -> str:
+    """DBMS 종류에 맞춘 직접 반사(Scrubbing) 우회 마커 인코딩"""
     if not text:
         return "''"
     
@@ -38,7 +46,10 @@ def get_dbms_specific_marker(text: str, dbms: str) -> str:
     else:
         return " + ".join([f"'{c}'" for c in text])
 
-def get_sqli_payloads() -> list[Payload]:
+def get_sqli_payloads(target_filter: str = "all") -> List[Payload]:
+    """
+    target_filter에 해당하는 DBMS의 페이로드만 로드하여 생성합니다.
+    """
     payloads = []
     file_path = _resolve_payload_file()
     if not file_path:
@@ -47,6 +58,8 @@ def get_sqli_payloads() -> list[Payload]:
     DELIM_START = "SVSDAAAA"
     DELIM_STOP = "VASDAAAA"
     marker_cache = {}
+
+    target_filter_lower = target_filter.lower()
 
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -61,6 +74,9 @@ def get_sqli_payloads() -> list[Payload]:
                 attack_type = parts[1]
                 risk_level = parts[2]
                 dbms = parts[3]
+
+                if target_filter_lower != "all" and target_filter_lower != dbms.lower():
+                    continue
 
                 if dbms not in marker_cache:
                     marker_cache[dbms] = (
@@ -84,10 +100,12 @@ def get_sqli_payloads() -> list[Payload]:
                 final_value = final_value.replace("[ORIGVALUE]", "1")
                 final_value = final_value.replace("[SLEEPTIME]", "5")
 
+                # Payload 객체에 target_dbms 속성 전달
                 payloads.append(Payload(
                     value=final_value,
                     attack_type=attack_type,
-                    risk_level=risk_level
+                    risk_level=risk_level,
+                    target_dbms=dbms
                 ))
                 
     return payloads

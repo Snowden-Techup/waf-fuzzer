@@ -17,6 +17,7 @@ def select_modules(args) -> list:
             include_time_based=args.sqli_time_based,
             max_time_payloads=args.sqli_time_max,
             evasion_level=args.sqli_evasion_level,
+            target_dbms=args.target_dbms,
         )
         selected.append(sqli_module)
 
@@ -25,7 +26,7 @@ def select_modules(args) -> list:
             include_time_based=args.osci_time_based,
             max_time_payloads=args.osci_time_max,
             evasion_level=args.osci_evasion_level,
-            target_os=args.target_os
+            target_os=args.target_os,
         )
         selected.append(osci_module)
 
