@@ -467,6 +467,131 @@
     }
     .muted { color: var(--muted); font-size: 0.84rem; }
 
+    /* ── Grouped vulnerability cards ── */
+    .vuln-group {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      border-left-width: 4px;
+      border-left-color: #64748b;
+      background: rgba(18, 26, 45, 0.5);
+      overflow: hidden;
+    }
+    .vuln-group--low    { border-left-color: #22c55e; border-color: rgba(34,197,94,0.25);  background: rgba(34,197,94,0.05); }
+    .vuln-group--medium { border-left-color: #eab308; border-color: rgba(234,179,8,0.3);   background: rgba(234,179,8,0.05); }
+    .vuln-group--high   { border-left-color: #f97316; border-color: rgba(249,115,22,0.35); background: rgba(249,115,22,0.05); }
+    .vuln-group--critical { border-left-color: #ef4444; border-color: rgba(239,68,68,0.4);  background: rgba(244,63,94,0.05); }
+
+    .vuln-group-header {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .vuln-group-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .vuln-type-name {
+      font-weight: 700;
+      font-size: 0.93rem;
+      color: #dbeafe;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .count-badge {
+      background: rgba(71,85,105,0.45);
+      border: 1px solid #475569;
+      border-radius: 999px;
+      padding: 1px 9px;
+      font-size: 0.69rem;
+      color: #94a3b8;
+    }
+    .guide-toggle-btn {
+      background: rgba(14,22,40,0.6);
+      border: 1px solid #2d3f5f;
+      border-radius: 6px;
+      color: #7dd3fc;
+      font-size: 0.72rem;
+      padding: 4px 11px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+    .guide-toggle-btn:hover { border-color: var(--accent); color: #e0f2fe; }
+
+    .vuln-group-meta {
+      padding: 2px 14px 11px;
+      border-bottom: 1px solid rgba(38,53,80,0.55);
+    }
+    .reference-row {
+      font-size: 0.77rem;
+      color: #7dd3fc;
+      margin-bottom: 6px;
+      line-height: 1.5;
+    }
+    .guide-text-box {
+      margin-top: 4px;
+      background: rgba(5,10,24,0.55);
+      border: 1px solid #1e3050;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.78rem;
+      color: #a8c0d8;
+      line-height: 1.7;
+    }
+
+    .vuln-instances { padding: 10px 14px 13px; }
+    .instance-label {
+      font-size: 0.69rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 7px;
+    }
+    .instance-item {
+      background: rgba(5,10,24,0.45);
+      border: 1px solid #1e2d48;
+      border-radius: 7px;
+      padding: 8px 11px;
+      margin-bottom: 6px;
+    }
+    .instance-item:last-child { margin-bottom: 0; }
+    .instance-row {
+      display: flex;
+      gap: 7px;
+      margin-bottom: 3px;
+      align-items: baseline;
+    }
+    .instance-row:last-child { margin-bottom: 0; }
+    .instance-key {
+      color: #64748b;
+      font-size: 0.71rem;
+      flex-shrink: 0;
+      min-width: 58px;
+    }
+    .instance-val {
+      color: #cbd5e1;
+      font-size: 0.8rem;
+      word-break: break-all;
+      line-height: 1.4;
+    }
+    .instance-payload {
+      color: #94a3b8;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.71rem;
+      word-break: break-all;
+      line-height: 1.45;
+    }
+    .report-summary-row {
+      font-size: 0.74rem;
+      color: #64748b;
+      margin-bottom: 10px;
+      font-family: "JetBrains Mono", monospace;
+    }
+
     @media (min-width: 1240px) {
       .left-scroll {
         display: grid;
@@ -572,13 +697,14 @@
                 <option value="file_upload">file_upload</option>
                 <option value="ssrf">ssrf</option>
                 <option value="stored_xss">stored_xss</option>
+                <option value="reflected_xss">reflected_xss</option>
               </select>
             </div>
             <div class="mt-3">
               <label class="form-label" for="level">우회 단계</label>
               <input id="level" type="number" class="form-control" min="0" max="3" value="1">
               <div class="field-help">
-                SQLi·LFI·SSRF·Stored XSS 우회 단계. OSCi는 모듈별 상세에서 설정합니다. bruteforce에는 적용되지 않습니다.
+                SQLi·LFI·SSRF·Stored XSS 우회 단계. OSCi·Reflected XSS는 모듈별 상세에서 설정합니다. bruteforce에는 적용되지 않습니다.
               </div>
             </div>
           </div>
@@ -853,6 +979,17 @@
               </div>
             </div>
             </div>
+
+            <div id="detailPanelRxss" class="module-detail-panel" hidden>
+            <div class="row g-2 mb-3">
+              <div class="col-12 hint">Reflected XSS</div>
+              <div class="col-md-4">
+                <label class="form-label" for="rxss_evasion_level">우회 단계</label>
+                <input id="rxss_evasion_level" type="number" class="form-control" min="0" max="3" value="1">
+                <div class="field-help">--rxss-evasion-level (0=원본, 1=기본 WAF 우회, 2=인코딩, 3=난독화)</div>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
         </div>
@@ -907,7 +1044,7 @@
           <div class="stat-value" id="reportTarget" style="font-size: 0.95rem;">-</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">취약점 수</div>
+          <div class="stat-label" id="reportFindingsLabel">공격 유형 수</div>
           <div class="stat-value" id="reportFindings">0</div>
         </div>
       </div>
@@ -954,6 +1091,7 @@
     const detailPanelBf = document.getElementById("detailPanelBf");
     const detailPanelSsrf = document.getElementById("detailPanelSsrf");
     const detailPanelSxss = document.getElementById("detailPanelSxss");
+    const detailPanelRxss = document.getElementById("detailPanelRxss");
     const moduleDetailHint = document.getElementById("moduleDetailHint");
     let lastScanId = "";
     let pollTimer = null;
@@ -1051,13 +1189,15 @@
       const showBf = t === "bruteforce";
       const showSsrf = t === "all" || t === "ssrf";
       const showSxss = t === "all" || t === "stored_xss";
-      const any = showSqli || showOsci || showBf || showSsrf || showSxss;
+      const showRxss = t === "all" || t === "reflected_xss";
+      const any = showSqli || showOsci || showBf || showSsrf || showSxss || showRxss;
 
       detailPanelSqli.hidden = !showSqli;
       detailPanelOsci.hidden = !showOsci;
       detailPanelBf.hidden = !showBf;
       detailPanelSsrf.hidden = !showSsrf;
       detailPanelSxss.hidden = !showSxss;
+      detailPanelRxss.hidden = !showRxss;
       moduleDetailSection.hidden = !any;
 
       const labels = [];
@@ -1066,6 +1206,7 @@
       if (showBf) labels.push("Bruteforce");
       if (showSsrf) labels.push("SSRF");
       if (showSxss) labels.push("Stored XSS");
+      if (showRxss) labels.push("Reflected XSS");
       moduleDetailHint.textContent = labels.length ? labels.join(" · ") : "";
     }
 
@@ -1075,6 +1216,8 @@
     document.getElementById("level").addEventListener("input", () => {
       const osciLevel = document.getElementById("osci_evasion_level");
       if (osciLevel) osciLevel.value = document.getElementById("level").value;
+      const rxssLevel = document.getElementById("rxss_evasion_level");
+      if (rxssLevel) rxssLevel.value = document.getElementById("level").value;
     });
 
     function toInt(id, fallback = 0) {
@@ -1103,12 +1246,6 @@
 
     const SEVERITY_SORT_ORDER = { critical: 0, high: 1, medium: 2, low: 3, unknown: 4 };
 
-    function severityRank(item) {
-      const raw = item.attack_info?.severity ?? item.severity;
-      const tier = severityTier(raw);
-      return SEVERITY_SORT_ORDER[tier] ?? 4;
-    }
-
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, "&amp;")
@@ -1117,56 +1254,146 @@
         .replace(/"/g, "&quot;");
     }
 
-    function renderReport(scan) {
-      const reportVulns = scan.report_json?.vulnerabilities || [];
-      const findings = reportVulns.length ? reportVulns : (scan.findings || []);
-      reportScanId.textContent = `scan_id: ${scan.scan_id || "(없음)"}`;
-      reportStatus.textContent = scan.status || "-";
-      reportProgress.textContent = formatProgressPercent(scan);
-      reportTarget.textContent = scan.target || scan.request?.url || "-";
-      reportFindings.textContent = String(findings.length);
+    /* ── 취약점 렌더링 헬퍼 ── */
+    function isGroupedFormat(vulns) {
+      return vulns.length > 0 && "attack_type" in vulns[0];
+    }
 
-      if (!findings.length) {
-        findingList.innerHTML = '<div class="muted">발견된 취약점이 없습니다.</div>';
+    let _guideCounter = 0;
+    function toggleGuide(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = !el.hidden;
+      const btn = document.querySelector(`[data-guide-target="${id}"]`);
+      if (btn) btn.textContent = el.hidden ? "시큐어 코딩 가이드 ▾" : "시큐어 코딩 가이드 ▴";
+    }
+
+    function renderGroupCard(group) {
+      const tier = severityTier(group.severity || "unknown");
+      const sevLabel = escapeHtml((group.severity || "unknown").toUpperCase());
+      const typeName = escapeHtml(group.attack_type || "Unknown");
+      const reference = escapeHtml(group.reference || "");
+      const guideText = escapeHtml(group.secure_coding_guide || "");
+      const count = group.count ?? group.instances?.length ?? 0;
+      const instances = group.instances || [];
+      const guideId = `guide-${++_guideCounter}`;
+
+      const instancesHtml = instances.map((inst) => {
+        const tgt = inst.target || {};
+        const ai  = inst.attack_info || {};
+        const ev  = inst.evidence || {};
+        const url      = escapeHtml(tgt.url || "-");
+        const param    = escapeHtml(tgt.parameter || "-");
+        const location = escapeHtml(tgt.location || "-");
+        const method   = escapeHtml(tgt.method || "-");
+        const variant  = escapeHtml(ai.attack_variant || "");
+        const rawPayload = String(ai.payload_value || "-");
+        const payloadShort = escapeHtml(rawPayload.length > 130 ? rawPayload.slice(0, 130) + "…" : rawPayload);
+        const status   = ev.status_code ?? "-";
+        const elapsed  = ev.response_time != null ? `${ev.response_time}s` : "-";
+        return `
+          <div class="instance-item">
+            <div class="instance-row"><span class="instance-key">URL</span><span class="instance-val">${url}</span></div>
+            <div class="instance-row"><span class="instance-key">파라미터</span><span class="instance-val">${param}</span></div>
+            <div class="instance-row"><span class="instance-key">위치</span><span class="instance-val">${location} · ${method}</span></div>
+            ${variant ? `<div class="instance-row"><span class="instance-key">변형</span><span class="instance-val">${variant}</span></div>` : ""}
+            <div class="instance-row"><span class="instance-key">응답</span><span class="instance-val">HTTP ${status} · ${elapsed}</span></div>
+            <div class="instance-row"><span class="instance-key">페이로드</span><span class="instance-payload">${payloadShort}</span></div>
+          </div>`;
+      }).join("");
+
+      const metaHtml = (reference || guideText) ? `
+        <div class="vuln-group-meta">
+          ${reference ? `<div class="reference-row">📎 ${reference}</div>` : ""}
+          ${guideText ? `<div class="guide-text-box" id="${guideId}" hidden>${guideText}</div>` : ""}
+        </div>` : "";
+
+      return `
+        <div class="vuln-group vuln-group--${tier}">
+          <div class="vuln-group-header">
+            <div class="vuln-group-title">
+              <span class="badge-sev badge-sev--${tier}">${sevLabel}</span>
+              <span class="vuln-type-name">${typeName}</span>
+              <span class="count-badge">${count}건</span>
+            </div>
+            ${guideText ? `<button class="guide-toggle-btn" data-guide-target="${guideId}" onclick="toggleGuide('${guideId}')">시큐어 코딩 가이드 ▾</button>` : ""}
+          </div>
+          ${metaHtml}
+          <div class="vuln-instances">
+            ${instances.length > 1 ? `<div class="instance-label">발견 인스턴스 (${instances.length}건)</div>` : ""}
+            ${instancesHtml}
+          </div>
+        </div>`;
+    }
+
+    function renderFlatCard(item, scan) {
+      const severityRaw = item.attack_info?.severity || item.severity || "Unknown";
+      const tier      = severityTier(severityRaw);
+      const severity  = escapeHtml(severityRaw);
+      const type      = escapeHtml(item.attack_info?.type || item.type || "Unknown");
+      const parameter = escapeHtml(item.target?.parameter || item.parameter || "-");
+      const targetUrl = escapeHtml(item.target?.url || item.url || scan.target || "-");
+      const location  = escapeHtml(item.target?.location || item.location || "-");
+      const payload   = escapeHtml(item.attack_info?.payload_value || item.payload || "-");
+      return `
+        <div class="vuln-item vuln-item--${tier}">
+          <div class="vuln-head">
+            <span class="badge-sev badge-sev--${tier}">${severity}</span>
+            <span class="muted">${type}</span>
+          </div>
+          <div class="muted vuln-url">타겟 URL: ${targetUrl}</div>
+          <div class="muted">파라미터: ${parameter}</div>
+          <div class="muted">위치: ${location}</div>
+          <div class="muted">페이로드: ${payload}</div>
+        </div>`;
+    }
+
+    function renderReport(scan) {
+      reportScanId.textContent  = `scan_id: ${scan.scan_id || "(없음)"}`;
+      reportStatus.textContent  = scan.status || "-";
+      reportProgress.textContent = formatProgressPercent(scan);
+      reportTarget.textContent  = scan.target || scan.request?.url || "-";
+
+      const reportVulns  = scan.report_json?.vulnerabilities || [];
+      const rawFindings  = scan.findings || [];
+      const useGrouped   = reportVulns.length > 0 && isGroupedFormat(reportVulns);
+      const flatFallback = !useGrouped && (rawFindings.length > 0 || reportVulns.length > 0);
+
+      /* ── 요약 카운트 ── */
+      const findingsLabel = document.getElementById("reportFindingsLabel");
+      if (useGrouped) {
+        const sum = scan.report_json?.metadata?.summary || {};
+        reportFindings.textContent = String(sum.vulnerability_types ?? reportVulns.length);
+        if (findingsLabel) findingsLabel.textContent = "공격 유형 수";
+      } else {
+        const n = rawFindings.length || reportVulns.length;
+        reportFindings.textContent = String(n);
+        if (findingsLabel) findingsLabel.textContent = "취약점 수";
+      }
+
+      if (useGrouped) {
+        const sum = scan.report_json?.metadata?.summary || {};
+        const deduped = sum.findings_deduped != null ? `중복제거 ${sum.findings_deduped}건` : "";
+        const raw     = sum.findings_raw     != null ? `원본 ${sum.findings_raw}건` : "";
+        const summaryLine = [deduped, raw].filter(Boolean).join(" · ");
+        findingList.innerHTML =
+          (summaryLine ? `<div class="report-summary-row">${escapeHtml(summaryLine)}</div>` : "") +
+          reportVulns.map(renderGroupCard).join("");
         return;
       }
 
-      const sorted = [...findings].sort((a, b) => {
-        const ra = severityRank(a);
-        const rb = severityRank(b);
+      const items = rawFindings.length > 0 ? rawFindings : reportVulns;
+      if (!items.length) {
+        findingList.innerHTML = '<div class="muted">발견된 취약점이 없습니다.</div>';
+        return;
+      }
+      const sorted = [...items].sort((a, b) => {
+        const ra = SEVERITY_SORT_ORDER[severityTier(a.attack_info?.severity ?? a.severity)] ?? 4;
+        const rb = SEVERITY_SORT_ORDER[severityTier(b.attack_info?.severity ?? b.severity)] ?? 4;
         if (ra !== rb) return ra - rb;
-        const ua = String(a.target?.url || a.url || "");
-        const ub = String(b.target?.url || b.url || "");
-        if (ua !== ub) return ua.localeCompare(ub);
-        const pa = String(a.target?.parameter || a.parameter || "");
-        const pb = String(b.target?.parameter || b.parameter || "");
-        return pa.localeCompare(pb);
+        return (a.target?.url || a.url || "").localeCompare(b.target?.url || b.url || "");
       });
-
-      findingList.innerHTML = sorted.map((item) => {
-        const severityRaw = item.attack_info?.severity || item.severity || "Unknown";
-        const tier = severityTier(severityRaw);
-        const severity = escapeHtml(severityRaw);
-        const type = escapeHtml(item.attack_info?.type || item.type || "Unknown");
-        const parameter = escapeHtml(item.target?.parameter || item.parameter || "-");
-        const targetUrl = escapeHtml(
-          item.target?.url || item.url || scan.target || scan.request?.url || "-"
-        );
-        const location = escapeHtml(item.target?.location || item.location || "-");
-        const payload = escapeHtml(item.attack_info?.payload_value || item.payload || "-");
-        return `
-          <div class="vuln-item vuln-item--${tier}">
-            <div class="vuln-head">
-              <span class="badge-sev badge-sev--${tier}">${severity}</span>
-              <span class="muted">${type}</span>
-            </div>
-            <div class="muted vuln-url">타겟 URL: ${targetUrl}</div>
-            <div class="muted">파라미터: ${parameter}</div>
-            <div class="muted">위치: ${location}</div>
-            <div class="muted">페이로드: ${payload}</div>
-          </div>
-        `;
-      }).join("");
+      findingList.innerHTML = sorted.map((item) => renderFlatCard(item, scan)).join("");
     }
 
     async function syncScanState() {
@@ -1245,6 +1472,9 @@
           max_risk_level: document.getElementById("sxss_max_risk_level").value,
           categories: parseCommaList(document.getElementById("sxss_categories").value),
           target_params: parseCommaList(document.getElementById("sxss_target_params").value)
+        },
+        reflected_xss: {
+          evasion_level: toInt("rxss_evasion_level", 1)
         }
       };
     }

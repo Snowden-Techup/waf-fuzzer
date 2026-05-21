@@ -107,9 +107,64 @@ class XSSContextParser(HTMLParser):
         ])
 
 
+_STRONG_ERROR_SNIPPET_MARKERS = (
+    "internal server error",
+    "sql syntax",
+    "sqlite_error",
+    "er_parse_error",
+    "syntaxerror",
+    "referenceerror",
+    "unhandled exception",
+    "stack trace",
+    "unexpected token",
+)
+
+_WEAK_ERROR_SNIPPET_MARKERS = (
+    "error",
+    "exception",
+    "at ",
+    "traceback",
+)
+
+
+def response_status(response: Any) -> int:
+    try:
+        return int(getattr(response, "status_code", getattr(response, "status", 200)) or 200)
+    except (TypeError, ValueError):
+        return 200
+
+
+def is_success_status(status: int) -> bool:
+    return 200 <= status < 300
+
+
+def looks_like_error_snippet(text: str) -> bool:
+    """에러 페이지·스택 트레이스 본문 — stored XSS 검증에서 제외."""
+    if not text:
+        return False
+    sample = text[:4000].lower()
+    if any(marker in sample for marker in _STRONG_ERROR_SNIPPET_MARKERS):
+        return True
+    weak_hits = sum(1 for marker in _WEAK_ERROR_SNIPPET_MARKERS if marker in sample)
+    return weak_hits >= 3
+
+
+def is_acceptable_verify_response(status: int, body: str, *, marker: str = "") -> bool:
+    """2차 검증 GET: 2xx만 허용, 에러 페이지 휴리스틱 적용."""
+    if not is_success_status(status):
+        return False
+    if marker and marker in body:
+        idx = body.find(marker)
+        start = max(0, idx - 500)
+        end = min(len(body), idx + len(marker) + 500)
+        if looks_like_error_snippet(body[start:end]):
+            return False
+    return True
+
+
 def _is_waf_blocked(response: Any, original_res: Any, baseline_text: Optional[str] = None) -> bool:
-    target_status = getattr(response, 'status_code', getattr(response, 'status', 200))
-    orig_status = getattr(original_res, 'status_code', getattr(original_res, 'status', 200)) if original_res else 200
+    target_status = response_status(response)
+    orig_status = response_status(original_res) if original_res else 200
 
     if target_status in [403, 406, 429, 501, 503] and orig_status < 400:
         return True
@@ -475,6 +530,16 @@ def analyze_stored_xss(
 
     if not response or not hasattr(response, 'text') or not response.text:
         result["context"] = "no_response"
+        return result
+
+    # 쿼리스트링 URL + 5xx: 에러 페이지 반사 가능성이 높아 1차 분석 스킵 (verify 부하 감소)
+    injection_status = response_status(response)
+    response_url = str(getattr(response, "url", "") or "")
+    if injection_status >= 500 and "?" in response_url:
+        result["context"] = "server_error_query"
+        result["evidence"] = (
+            f"Query injection returned HTTP {injection_status}; skipping (likely error reflection)"
+        )
         return result
 
     response_body = response.text[:MAX_RESPONSE_LENGTH]

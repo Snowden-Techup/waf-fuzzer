@@ -25,7 +25,17 @@ from reporter.generator import _finding_sort_key
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-SCAN_TYPES = ["all", "sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"]
+SCAN_TYPES = [
+    "all",
+    "sqli",
+    "osci",
+    "bruteforce",
+    "lfi",
+    "file_upload",
+    "ssrf",
+    "stored_xss",
+    "reflected_xss",
+]
 
 # Web UI: true-random bruteforce는 total_requests 대비 진행률이 오래 안 바뀌는 경우가 있어
 # 이 모드에서만 N건 단위 보조 로그를 남긴다. (그 외는 진행률% 변경 시만 로그)
@@ -53,6 +63,7 @@ class EngineOptions(BaseModel):
 class SQLiOptions(BaseModel):
     include_time_based: bool = False
     max_time_payloads: int = Field(default=0, ge=0)
+    target_dbms: Literal["mysql", "mssql", "oracle", "postgres", "sqlite", "access", "all"] = "all"
 
 
 class OSCiOptions(BaseModel):
@@ -94,10 +105,22 @@ class StoredXSSOptions(BaseModel):
     target_params: list[str] = Field(default_factory=list)
 
 
+class ReflectedXSSOptions(BaseModel):
+    evasion_level: int = Field(default=1, ge=0, le=3)
+
+
 class ScanRequest(BaseModel):
     target_url: str = Field(..., min_length=1, max_length=2048, alias="url")
     scan_type: Literal[
-        "all", "sqli", "osci", "bruteforce", "lfi", "file_upload", "ssrf", "stored_xss"
+        "all",
+        "sqli",
+        "osci",
+        "bruteforce",
+        "lfi",
+        "file_upload",
+        "ssrf",
+        "stored_xss",
+        "reflected_xss",
     ] = "all"
     level: int = Field(default=1, ge=0, le=3)
     auth: AuthSettings = Field(default_factory=AuthSettings)
@@ -107,6 +130,7 @@ class ScanRequest(BaseModel):
     bruteforce: BruteforceOptions = Field(default_factory=BruteforceOptions)
     ssrf: SSRFOptions = Field(default_factory=SSRFOptions)
     stored_xss: StoredXSSOptions = Field(default_factory=StoredXSSOptions)
+    reflected_xss: ReflectedXSSOptions = Field(default_factory=ReflectedXSSOptions)
 
     model_config = {"populate_by_name": True}
 
@@ -144,6 +168,7 @@ async def get_schema() -> dict:
             "sxss_scan_mode": "full",
             "sxss_max_risk_level": "Critical",
             "osci_evasion_level": 1,
+            "rxss_evasion_level": 1,
         },
     }
 
@@ -207,6 +232,7 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
     lfi_evasion_level = level
     ssrf_evasion_level = min(level, 2)
     sxss_evasion_level = level
+    rxss_evasion_level = req.reflected_xss.evasion_level
 
     return Namespace(
         # Core scan options
@@ -248,6 +274,7 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
         sqli_evasion_level=sqli_evasion_level,
         sqli_time_based=req.sqli.include_time_based,
         sqli_time_max=req.sqli.max_time_payloads,
+        target_dbms=req.sqli.target_dbms,
         osci_evasion_level=osci_evasion_level,
         osci_time_based=req.osci.include_time_based,
         osci_time_max=req.osci.max_time_payloads,
@@ -260,6 +287,7 @@ def _build_cli_args(req: ScanRequest) -> Namespace:
         sxss_max_risk_level=req.stored_xss.max_risk_level,
         sxss_categories=list(req.stored_xss.categories),
         sxss_target_params=list(req.stored_xss.target_params),
+        rxss_evasion_level=rxss_evasion_level,
     )
 
 

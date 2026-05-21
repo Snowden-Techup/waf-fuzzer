@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from fuzzer import EngineStats, Finding
 from reporter.dedupe import (
     dedupe_vulnerabilities,
     full_report_path,
+    get_attack_guidance,
     vulnerability_sort_key,
 )
 
@@ -153,6 +155,63 @@ class ReportGenerator:
             row["ssrf_channel"] = ch
         return row
 
+    def _group_vulnerabilities_by_type(
+        self, records: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Group flat vulnerability records by attack_type.
+
+        Each group contains:
+          - attack_type, severity (worst across instances), reference,
+            secure_coding_guide, count, instances[]
+        Instance objects retain target / attack_info (without redundant type field)
+        / evidence / module.
+        """
+        _sev_rank_to_label = {0: "critical", 1: "high", 2: "medium", 3: "low"}
+
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        group_sev_rank: dict[str, int] = {}
+
+        for rec in records:
+            attack_info = rec.get("attack_info") or {}
+            attack_type = str(attack_info.get("type") or "Unknown")
+            sev = _severity_rank(str(attack_info.get("severity") or "high"))
+            if attack_type not in group_sev_rank:
+                group_sev_rank[attack_type] = sev
+            else:
+                group_sev_rank[attack_type] = min(group_sev_rank[attack_type], sev)
+
+            instance_attack: dict[str, Any] = {
+                k: v for k, v in attack_info.items() if k != "type"
+            }
+            instance: dict[str, Any] = {
+                "target": rec.get("target"),
+                "attack_info": instance_attack,
+                "evidence": rec.get("evidence"),
+            }
+            if rec.get("module"):
+                instance["module"] = rec["module"]
+            if rec.get("ssrf_channel"):
+                instance["ssrf_channel"] = rec["ssrf_channel"]
+            groups[attack_type].append(instance)
+
+        result: list[dict[str, Any]] = []
+        for attack_type, instances in groups.items():
+            guidance = get_attack_guidance(attack_type)
+            sev_label = _sev_rank_to_label.get(group_sev_rank[attack_type], "info")
+            entry: dict[str, Any] = {
+                "attack_type": attack_type,
+                "severity": sev_label,
+                "reference": guidance.get("reference", ""),
+                "secure_coding_guide": guidance.get("secure_coding_guide", ""),
+                "count": len(instances),
+                "instances": instances,
+            }
+            result.append(entry)
+
+        result.sort(key=lambda g: (_severity_rank(g["severity"]), g["attack_type"]))
+        return result
+
     def export_to_json(self, filepath: str = "scan_result.json") -> None:
         """
         Writes a deduplicated report to ``filepath`` (one PoC per URL / parameter / type)
@@ -164,6 +223,7 @@ class ReportGenerator:
         discovery_vulnerabilities = [self._finding_to_dict(f) for f in self.findings]
         deduped = dedupe_vulnerabilities(discovery_vulnerabilities, mode="first_in_order")
         deduped_sorted = sorted(deduped, key=vulnerability_sort_key)
+        grouped = self._group_vulnerabilities_by_type(deduped_sorted)
 
         full_report: dict[str, Any] = {
             "metadata": {
@@ -184,11 +244,12 @@ class ReportGenerator:
                     "queued": self.stats.queued,
                     "completed": self.stats.completed,
                     "failures": self.stats.failures,
-                    "findings": len(deduped_sorted),
+                    "vulnerability_types": len(grouped),
+                    "findings_deduped": len(deduped_sorted),
                     "findings_raw": self.stats.findings,
                 },
             },
-            "vulnerabilities": deduped_sorted,
+            "vulnerabilities": grouped,
         }
 
         full_path = full_report_path(filepath)
