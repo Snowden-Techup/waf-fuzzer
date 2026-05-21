@@ -85,7 +85,9 @@ class ReportGenerator:
             payload_obj = finding.payload
             severity = getattr(payload_obj, "risk_level", "HIGH")
             attack_type = getattr(payload_obj, "attack_type", "PotentialIssue")
-            payload_value = getattr(payload_obj, "value", str(payload_obj))
+            raw_payload = getattr(finding.payload, "value", str(finding.payload))
+            safe_payload = raw_payload.replace("\n", "\\n").replace("\r", "\\r")
+            payload_value = safe_payload
 
             param_location = getattr(finding.surface, "param_location", "unknown")
             location_text = getattr(param_location, "name", str(param_location))
